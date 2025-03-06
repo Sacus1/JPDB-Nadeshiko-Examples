@@ -12,11 +12,30 @@
 // @connect      linodeobjects.com
 // @grant        GM_addElement
 // @grant        GM_xmlhttpRequest
+// @grant        GM_setValue
+// @grant        GM_getValue
+// @grant        GM_registerMenuCommand
 // @license      MIT
 // ==/UserScript==
 
 (function() {
     'use strict';
+    let apiKey = GM_getValue("nadeshiko-api-key", "")
+
+    // Register menu commands
+    GM_registerMenuCommand("Set API Key", async () => {
+        apiKey = fetchApiKey();
+    });
+
+    function fetchApiKey() {
+        let apiKey = prompt("A Nadeshiko API key is required for this extension to work.\n\nYou can get one for free here after creating an account: https://nadeshiko.co/settings/developer");
+        GM_setValue("nadeshiko-api-key", apiKey);
+
+        if (apiKey) {
+            alert("API Key saved successfully!");
+        }
+        return apiKey;
+    }
 
     const CONFIG = {
         IMAGE_WIDTH: '400px',
@@ -48,7 +67,6 @@
         currentlyPlayingAudio: false
     };
 
-    const apikey = ""
     // IndexedDB Manager
     const IndexedDBManager = {
         MAX_ENTRIES: 100000000,
@@ -56,7 +74,7 @@
 
         open() {
             return new Promise((resolve, reject) => {
-                const request = indexedDB.open('ImmersionKitDB', 1);
+                const request = indexedDB.open('NadeshikoDB', 1);
                 request.onupgradeneeded = function(event) {
                     const db = event.target.result;
                     if (!db.objectStoreNames.contains('dataStore')) {
@@ -193,7 +211,7 @@
 
         delete() {
             return new Promise((resolve, reject) => {
-                const request = indexedDB.deleteDatabase('ImmersionKitDB');
+                const request = indexedDB.deleteDatabase('NadeshikoDB');
                 request.onsuccess = function() {
                     console.log('IndexedDB deleted successfully');
                     resolve();
@@ -212,7 +230,7 @@
 
 
     // API FUNCTIONS=====================================================================================================================
-    function getImmersionKitData(vocab, exactSearch) {
+    function getNadeshikoData(vocab, exactSearch) {
 
 
         return new Promise(async (resolve, reject) => {
@@ -241,13 +259,19 @@
                         resolve();
                     } else {
                         console.log(`Calling API for: ${searchVocab}`);
+                        if(!apiKey) {
+                            // Ask for API Key on search if not set to prevent 401 errors
+                            apiKey = fetchApiKey();
+                            if(!apiKey) return;
+                        }
+
                         GM_xmlhttpRequest({
                             method: "POST",
                             url: url,
                             data: JSON.stringify({ query: searchVocab }),
                             headers:
                             {
-                                "X-API-Key":apikey,
+                                "X-API-Key": apiKey,
                                 "Content-Type": "application/json"
                             },
                             onload: async function(response) {
@@ -619,7 +643,7 @@
 
         state.apiDataFetched = false;
         embedImageAndPlayAudio();
-        getImmersionKitData(state.vocab, state.exactSearch)
+        getNadeshikoData(state.vocab, state.exactSearch)
             .then(() => {
             embedImageAndPlayAudio();
         })
@@ -653,14 +677,14 @@
     }
 
     function createTextButton(vocab, exact) {
-        // Create a text button for the Immersion Kit
+        // Create a text button for Nadeshiko
         const textButton = document.createElement('a');
-        textButton.textContent = 'Immersion Kit';
+        textButton.textContent = 'Nadeshiko';
         textButton.style.color = 'var(--subsection-label-color)';
         textButton.style.fontSize = '85%';
         textButton.style.marginRight = '0.5rem';
         textButton.style.verticalAlign = 'middle';
-        textButton.href = `https://www.immersionkit.com/dictionary?keyword=${encodeURIComponent(vocab)}&sort=shortness${exact ? '&exact=true' : ''}`;
+        textButton.href = `https://nadeshiko.co/search/sentence?query=${encodeURIComponent(vocab)}`;
         textButton.target = '_blank';
         return textButton;
     }
@@ -812,7 +836,7 @@
             // Append sentence and translation or a placeholder text
             sentence ? appendSentenceAndTranslation(wrapperDiv, sentence, translation) : appendNoneText(wrapperDiv);
         } else if (state.error) {
-            wrapperDiv.appendChild(createTextElement('ERROR\nNO EXAMPLES FOUND\n\nRARE WORD OR\nIMMERSIONKIT API IS TEMPORARILY DOWN'));
+            wrapperDiv.appendChild(createTextElement('ERROR\nNO EXAMPLES FOUND\n\nRARE WORD OR\NADESHIKO API IS TEMPORARILY DOWN'));
         } else {
             wrapperDiv.appendChild(createTextElement('LOADING'));
         }
@@ -837,7 +861,7 @@
 
     function removeExistingContainer() {
         // Remove the existing container if it exists
-        const existingContainer = document.getElementById('immersion-kit-container');
+        const existingContainer = document.getElementById('nadeshiko-container');
         if (existingContainer) {
             existingContainer.remove();
         }
@@ -934,7 +958,7 @@
     function createNavigationDiv() {
         // Create and style the navigation div
         const navigationDiv = document.createElement('div');
-        navigationDiv.id = 'immersion-kit-embed';
+        navigationDiv.id = 'nadeshiko-embed';
         navigationDiv.style.display = 'flex';
         navigationDiv.style.justifyContent = 'center';
         navigationDiv.style.alignItems = 'center';
@@ -996,7 +1020,7 @@
     function createContainerDiv(leftArrow, wrapperDiv, rightArrow, navigationDiv) {
         // Create and configure the main container div
         const containerDiv = document.createElement('div');
-        containerDiv.id = 'immersion-kit-container';
+        containerDiv.id = 'nadeshiko-container';
         containerDiv.style.display = 'flex';
         containerDiv.style.alignItems = 'center';
         containerDiv.style.justifyContent = 'center';
@@ -1077,7 +1101,7 @@
 
     function embedImageAndPlayAudio() {
         // Embed the image and play audio, removing existing navigation div if present
-        const existingNavigationDiv = document.getElementById('immersion-kit-embed');
+        const existingNavigationDiv = document.getElementById('nadeshiko-embed');
         if (existingNavigationDiv) existingNavigationDiv.remove();
 
         const reviewUrlPattern = /https:\/\/jpdb\.io\/review(#a)?$/;
@@ -1830,7 +1854,7 @@
 
         // Fetch data and embed image/audio if necessary
         if (state.vocab && !state.apiDataFetched) {
-            getImmersionKitData(state.vocab, state.exactSearch)
+            getNadeshikoData(state.vocab, state.exactSearch)
                 .then(() => {
                 state.examples = shuffle(state.examples)
                 console.log("PageLoad",state)

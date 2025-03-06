@@ -55,8 +55,8 @@ Favorites allow you to pick a default example for a word. Next time the word app
 
 ## Links  
 
-- 📜 **GitHub Repository:** [https://github.com/AwooDesu/JPDB-Immersion-Kit-Examples](https://github.com/AwooDesu/JPDB-Immersion-Kit-Examples)  
-- 📥 **Download at Greasyfork:** [https://greasyfork.org/en/scripts/507408-jpdb-immersion-kit-examples](https://greasyfork.org/en/scripts/507408-jpdb-immersion-kit-examples)  
+- 📜 **GitHub Repository:** [https://github.com/Sacus1/JPDB-Nadeshiko-Examples](https://github.com/Sacus1/JPDB-Nadeshiko-Examples)  
+- 📥 **Download at Greasyfork:** WIP
 - 🛠 **JPDB Website:** [https://jpdb.io](https://jpdb.io)  
 - 🎞 **Nadeshiko:** [https://nadeshiko.co](https://nadeshiko.co)
 
