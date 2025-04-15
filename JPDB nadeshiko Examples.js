@@ -1493,8 +1493,8 @@
         if (!overlay) return;
 
         const inputs = overlay.querySelectorAll('input, span');
+        console.log(inputs)
         const { changes, minimumExampleLengthChanged, newMinimumExampleLength } = gatherChanges(inputs);
-
         if (minimumExampleLengthChanged) {
             handleMinimumExampleLengthChange(newMinimumExampleLength, changes);
         } else {
@@ -1707,6 +1707,7 @@
 
                 select.addEventListener('change', (event) => {
                     CONFIG[key] = parseInt(event.target.value, 10); // Update the config with the selected value
+                    localStorage.setItem(`${scriptPrefix + configPrefix}${key}`, event.target.value); // Save to localStorage
                 });
 
                 rightContainer.appendChild(select);
@@ -1921,7 +1922,17 @@
             if (savedValue === null) {continue};
 
             const valueType = typeof CONFIG[configKey];
-            if (valueType === 'boolean') {
+            if (configKey === 'RANDOM_SENTENCE') {
+                if (savedValue == 0){
+                    CONFIG[configKey] = RANDOM_SENTENCE_ENUM.DISABLE
+                }
+                if (savedValue == 1){
+                    CONFIG[configKey] = RANDOM_SENTENCE_ENUM.ON_FIRST
+                }
+                if (savedValue == 2){
+                    CONFIG[configKey] = RANDOM_SENTENCE_ENUM.EVERY_TIME
+                }
+            }else if (valueType === 'boolean') {
                 CONFIG[configKey] = savedValue === 'true';
                 if (configKey === "DEFAULT_TO_EXACT_SEARCH") { state.exactSearch = CONFIG.DEFAULT_TO_EXACT_SEARCH }
                 // I wonder if this is the best way to do this...
@@ -1936,7 +1947,8 @@
     }
 
     function process_sentences(sentences, first_call) {
-        if (CONFIG.RANDOM_SENTENCE_ORDER > (first_call ? RANDOM_SENTENCE_ENUM.DISABLE : RANDOM_SENTENCE_ENUM.ON_GET)) {
+        console.log(CONFIG.RANDOM_SENTENCE)
+        if (CONFIG.RANDOM_SENTENCE > (first_call ? RANDOM_SENTENCE_ENUM.DISABLE : RANDOM_SENTENCE_ENUM.ON_GET)) {
             for (let i = sentences.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [sentences[i], sentences[j]] = [sentences[j], sentences[i]]; // Swap elements
@@ -1982,7 +1994,7 @@
         if (state.vocab && !state.apiDataFetched) {
             getNadeshikoData(state.vocab, state.exactSearch)
                 .then(() => {
-                state.examples = process_sentences(state.examples)
+                state.examples = process_sentences(state.examples,true)
                 console.log("PageLoad",state)
                 if (sentence) {
                     state.currentExampleIndex = state.examples.findIndex(example => example.segment_info.content_jp === sentence);
@@ -1993,7 +2005,7 @@
                 .catch(console.error);
         } else if (state.apiDataFetched) {
             if (sentence) {
-                state.currentExampleIndex = process_sentences(state.examples.findIndex(example => example.segment_info.content_jp === sentence));
+                state.currentExampleIndex = process_sentences(state.examples.findIndex(example => example.segment_info.content_jp === sentence),false);
             }
             embedImageAndPlayAudio();
             //preloadImages();
