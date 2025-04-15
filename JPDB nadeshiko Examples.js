@@ -38,7 +38,11 @@
         }
         return apiKey;
     }
-
+    const RANDOM_SENTENCE_ENUM = {
+        DISABLE: 0,
+        ON_FIRST: 1,
+        EVERY_TIME: 2
+    };
     const CONFIG = {
         IMAGE_WIDTH: '400px',
         WIDE_MODE: true,
@@ -58,7 +62,7 @@
         DEFAULT_TO_EXACT_SEARCH: true,
         // On changing this config option, the icons change but the sentences don't, so you
         // have to click once to match up the icons and again to actually change the sentences
-        RANDOM_SENTENCE_ORDER: 2, // 0 : disable; 1: Only on get; 2:Everytime
+        RANDOM_SENTENCE: RANDOM_SENTENCE_ENUM,
     };
 
     const state = {
@@ -1688,7 +1692,25 @@
 
             leftContainer.appendChild(label);
 
-            if (typeof value === 'boolean') {
+            if (key === 'RANDOM_SENTENCE') {
+                const select = document.createElement('select');
+                select.setAttribute('data-key', key);
+
+                // Add options to the select dropdown for the enum values
+                for (const [enumKey, enumValue] of Object.entries(RANDOM_SENTENCE_ENUM)) {
+                    const option = document.createElement('option');
+                    option.value = enumValue;
+                    option.text = enumKey.replace(/_/g, ' ').toLowerCase();
+                    option.selected = value === enumValue; // Set the current value as selected
+                    select.appendChild(option);
+                }
+
+                select.addEventListener('change', (event) => {
+                    CONFIG[key] = parseInt(event.target.value, 10); // Update the config with the selected value
+                });
+
+                rightContainer.appendChild(select);
+            } else if (typeof value === 'boolean') {
                 const checkboxContainer = document.createElement('div');
                 checkboxContainer.style.display = 'flex';
                 checkboxContainer.style.alignItems = 'center';
@@ -1913,8 +1935,8 @@
         }
     }
 
-    function process_sentences(sentences,first_call) {
-        if (CONFIG.RANDOM_SENTENCE_ORDER > first_call?0:1){
+    function process_sentences(sentences, first_call) {
+        if (CONFIG.RANDOM_SENTENCE_ORDER > (first_call ? RANDOM_SENTENCE_ENUM.DISABLE : RANDOM_SENTENCE_ENUM.ON_GET)) {
             for (let i = sentences.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [sentences[i], sentences[j]] = [sentences[j], sentences[i]]; // Swap elements
@@ -1971,7 +1993,7 @@
                 .catch(console.error);
         } else if (state.apiDataFetched) {
             if (sentence) {
-                state.currentExampleIndex =  process_sentences(state.examples.findIndex(example => example.segment_info.content_jp === sentence));
+                state.currentExampleIndex = process_sentences(state.examples.findIndex(example => example.segment_info.content_jp === sentence));
             }
             embedImageAndPlayAudio();
             //preloadImages();
