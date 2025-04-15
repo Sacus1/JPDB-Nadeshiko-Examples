@@ -55,9 +55,10 @@
         NUMBER_OF_PRELOADS: 1,
         VOCAB_SIZE: '250%',
         MINIMUM_EXAMPLE_LENGTH: 0,
-        DEFAULT_TO_EXACT_SEARCH: true
+        DEFAULT_TO_EXACT_SEARCH: true,
         // On changing this config option, the icons change but the sentences don't, so you
         // have to click once to match up the icons and again to actually change the sentences
+        RANDOM_SENTENCE_ORDER: 2, // 0 : disable; 1: Only on get; 2:Everytime
     };
 
     const state = {
@@ -417,9 +418,9 @@
         return { index: 0, exactState: state.exactSearch };
     }
 
-    function storeData(key, index, exactState) {
+    function storeData(key, sentence, exactState) {
         // Create a string value from index and exactState to store in localStorage
-        const value = `${index},${exactState ? 1 : 0}`;
+        const value = `${sentence},${exactState ? 1 : 0}`;
 
         // Store the value in localStorage using the provided key
         setItem(key, value);
@@ -883,8 +884,8 @@
         const imageUrl = example.media_info.path_image || null;
         const soundUrl = example.media_info.path_audio || null;
         const sentence = example.segment_info.content_jp || null;
-        const translation = example.segment_info.content_en || null;
-        const deck_name = example.basic_info.name_anime_romaji || null;
+        const translation = example.segment_info.content_en || "";
+        const deck_name = example.basic_info.name_anime_romaji || "Unknown Anime";
         const storedValue = getItem(state.vocab);
         const isBlacklisted = storedValue && storedValue.split(',').length > 1 && parseInt(storedValue.split(',')[1], 10) === 2;
         console.log("sentence",sentence);
@@ -975,7 +976,7 @@
         // Create and return an image element with specified attributes
         const searchVocab = exactSearch ? `「${vocab}」` : vocab;
         const example = state.examples[state.currentExampleIndex] || {};
-        const deck_name = example.deck_name || null;
+        const deck_name = example.basic_info.name_anime_romaji || null;
 
         // Extract the file name from the URL
         let file_name = imageUrl.substring(imageUrl.lastIndexOf('/') + 1);
@@ -1912,12 +1913,14 @@
         }
     }
 
-    function shuffle(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]]; // Swap elements
+    function process_sentences(sentences) {
+        if (CONFIG.RANDOM_SENTENCE_ORDER > 0){
+            for (let i = sentences.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [sentences[i], sentences[j]] = [sentences[j], sentences[i]]; // Swap elements
+            }
         }
-        return array;
+        return sentences;
     }
     //MAIN FUNCTIONS=====================================================================================================================
     function onPageLoad() {
@@ -1949,21 +1952,27 @@
         }
 
         // Retrieve stored data for the current vocabulary
-        const { index, exactState } = getStoredData(state.vocab);
-        state.currentExampleIndex = index;
+        const { sentence, exactState } = getStoredData(state.vocab);
         state.exactSearch = exactState;
+        console.log("Sentence",sentence)
 
         // Fetch data and embed image/audio if necessary
         if (state.vocab && !state.apiDataFetched) {
             getNadeshikoData(state.vocab, state.exactSearch)
                 .then(() => {
-                state.examples = shuffle(state.examples)
+                state.examples = process_sentences(state.examples)
                 console.log("PageLoad",state)
+                if (sentence) {
+                    state.currentExampleIndex = state.examples.findIndex(example => example.segment_info.content_jp === sentence);
+                }
                 preloadImages();
                 embedImageAndPlayAudio();
             })
                 .catch(console.error);
         } else if (state.apiDataFetched) {
+            if (sentence) {
+                state.currentExampleIndex = state.examples.findIndex(example => example.segment_info.content_jp === sentence);
+            }
             embedImageAndPlayAudio();
             //preloadImages();
             setVocabSize();
