@@ -1913,8 +1913,8 @@
         }
     }
 
-    function process_sentences(sentences) {
-        if (CONFIG.RANDOM_SENTENCE_ORDER > 0){
+    function process_sentences(sentences,first_call) {
+        if (CONFIG.RANDOM_SENTENCE_ORDER > first_call?0:1){
             for (let i = sentences.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [sentences[i], sentences[j]] = [sentences[j], sentences[i]]; // Swap elements
@@ -1971,7 +1971,7 @@
                 .catch(console.error);
         } else if (state.apiDataFetched) {
             if (sentence) {
-                state.currentExampleIndex = state.examples.findIndex(example => example.segment_info.content_jp === sentence);
+                state.currentExampleIndex =  process_sentences(state.examples.findIndex(example => example.segment_info.content_jp === sentence));
             }
             embedImageAndPlayAudio();
             //preloadImages();
