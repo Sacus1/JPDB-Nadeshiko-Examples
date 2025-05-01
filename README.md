@@ -44,7 +44,8 @@ The settings menu (**☰**) allows customization of the script's behavior:
 - **Minimum Example Length** – Set a lower limit for sentence length.  
   - **⚠ Warning:** Changing this **will delete all current favorites.**  
 - **Blacklist** – Prevent specific examples from appearing.  
-
+- **Randomize sentences** – Randomize the order of examples for a word.
+- **Weighted Randomization** – Randomize the order of examples for a word, but with a bias towards sentences with most known words. (Require jpdb API key)
 ## How It Works  
 
 The script searches **Nadeshiko** for examples based on the current vocabulary and embeds them into **jpdb.io**. Audio can be played manually or automatically.  

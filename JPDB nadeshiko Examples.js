@@ -103,6 +103,7 @@
 		// On changing this config option, the icons change but the sentences don't, so you
 		// have to click once to match up the icons and again to actually change the sentences
 		RANDOM_SENTENCE: RANDOM_SENTENCE_ENUM,
+		WEIGHTED_SENTENCES: false,
 	};
 	
 	const state = {
@@ -2204,49 +2205,51 @@
 	async function process_sentences(state, sentences, first_call) {
 		console.log(CONFIG.RANDOM_SENTENCE)
 		// set weights for each sentence by calling jpdb api
-		const parsePromises = sentences.map((sentence, i) => {
-			const data = {
-				"text": sentence.segment_info.content_jp,
-				"token_fields": [],
-				"position_length_encoding": "utf16",
-				"vocabulary_fields": [
-					"card_state", "spelling"
-				]
-			};
-			return new Promise((resolve, reject) => {
-				GM_xmlhttpRequest({
-					method: "POST",
-					url: "https://jpdb.io/api/v1/parse",
-					headers: {
-						"Authorization": `Bearer ${jpdbApiKey}`,
-					},
-					data: JSON.stringify(data),
-					onload: function (response) {
-						if (response.status === 200) {
-							const result = JSON.parse(response.responseText);
-							const amount = result["vocabulary"].length;
-							const VALID_CARD_STATES = ["known", "never-forget", "learning"];
-							let weight = 0;
-							for (let j = 0; j < amount; j++) {
-								if (result["vocabulary"][j][0] && VALID_CARD_STATES.includes(result["vocabulary"][j][0][0])) {
-									weight += 1;
+		if (CONFIG.WEIGHTED_SENTENCES) {
+			const parsePromises = sentences.map((sentence, i) => {
+				const data = {
+					"text": sentence.segment_info.content_jp,
+					"token_fields": [],
+					"position_length_encoding": "utf16",
+					"vocabulary_fields": [
+						"card_state", "spelling"
+					]
+				};
+				return new Promise((resolve, reject) => {
+					GM_xmlhttpRequest({
+						method: "POST",
+						url: "https://jpdb.io/api/v1/parse",
+						headers: {
+							"Authorization": `Bearer ${jpdbApiKey}`,
+						},
+						data: JSON.stringify(data),
+						onload: function (response) {
+							if (response.status === 200) {
+								const result = JSON.parse(response.responseText);
+								const amount = result["vocabulary"].length;
+								const VALID_CARD_STATES = ["known", "never-forget", "learning"];
+								let weight = 0;
+								for (let j = 0; j < amount; j++) {
+									if (result["vocabulary"][j][0] && VALID_CARD_STATES.includes(result["vocabulary"][j][0][0])) {
+										weight += 1;
+									}
 								}
+								sentences[i].weight = weight / amount;
+								console.log("Sentence weight", sentences[i].weight + " for sentence " + sentences[i].segment_info.content_jp);
+								resolve();
+							} else {
+								console.error("API call failed with status", response.status);
+								reject(new Error("API call failed"));
 							}
-							sentences[i].weight = weight / amount;
-							console.log("Sentence weight", sentences[i].weight + " for sentence " + sentences[i].segment_info.content_jp);
-							resolve();
-						} else {
-							console.error("API call failed with status", response.status);
-							reject(new Error("API call failed"));
+						},
+						onerror: function (error) {
+							reject(error);
 						}
-					},
-					onerror: function (error) {
-						reject(error);
-					}
+					});
 				});
 			});
-		});
-		await Promise.all(parsePromises);
+			await Promise.all(parsePromises);
+		}
 		if (CONFIG.RANDOM_SENTENCE > (first_call ? RANDOM_SENTENCE_ENUM.DISABLE : RANDOM_SENTENCE_ENUM.ON_FIRST)) {
 			for (let i = sentences.length - 1; i > 0; i--) {
 				const j = weightedRandomIndex(sentences); // Use a weighted random index
