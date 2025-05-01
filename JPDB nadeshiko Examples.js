@@ -45,6 +45,11 @@
     // https://developer.mozilla.org/en-US/docs/Web/API/UI_Events/Keyboard_event_key_values#navigation_keys
     const hotkeyOptions = ['None', 'ArrowLeft ArrowRight', ', .', '[ ]', 'Q W'];
 
+    const RANDOM_SENTENCE_ENUM = {
+        DISABLE: 0,
+        ON_FIRST: 1,
+        EVERY_TIME: 2
+    };
     const CONFIG = {
         IMAGE_WIDTH: '400px',
         WIDE_MODE: true,
@@ -62,9 +67,10 @@
         VOCAB_SIZE: '250%',
         MINIMUM_EXAMPLE_LENGTH: 0,
         HOTKEYS: ['None'],
-        DEFAULT_TO_EXACT_SEARCH: true
+        DEFAULT_TO_EXACT_SEARCH: true,
         // On changing this config option, the icons change but the sentences don't, so you
         // have to click once to match up the icons and again to actually change the sentences
+        RANDOM_SENTENCE: RANDOM_SENTENCE_ENUM,
     };
 
     const state = {
@@ -424,9 +430,9 @@
         return { index: 0, exactState: state.exactSearch };
     }
 
-    function storeData(key, index, exactState) {
+    function storeData(key, sentence, exactState) {
         // Create a string value from index and exactState to store in localStorage
-        const value = `${index},${exactState ? 1 : 0}`;
+        const value = `${sentence},${exactState ? 1 : 0}`;
 
         // Store the value in localStorage using the provided key
         setItem(key, value);
@@ -893,8 +899,8 @@
         const imageUrl = example.media_info.path_image || null;
         const soundUrl = example.media_info.path_audio || null;
         const sentence = example.segment_info.content_jp || null;
-        const translation = example.segment_info.content_en || null;
-        const deck_name = example.basic_info.name_anime_romaji || null;
+        const translation = example.segment_info.content_en || "";
+        const deck_name = example.basic_info.name_anime_romaji || "Unknown Anime";
         const storedValue = getItem(state.vocab);
         const isBlacklisted = storedValue && storedValue.split(',').length > 1 && parseInt(storedValue.split(',')[1], 10) === 2;
         console.log("sentence",sentence);
@@ -1019,7 +1025,7 @@
         // Create and return an image element with specified attributes
         const searchVocab = exactSearch ? `「${vocab}」` : vocab;
         const example = state.examples[state.currentExampleIndex] || {};
-        const deck_name = example.deck_name || null;
+        const deck_name = example.basic_info.name_anime_romaji || null;
 
         // Extract the file name from the URL
         let file_name = imageUrl.substring(imageUrl.lastIndexOf('/') + 1);
@@ -1532,8 +1538,8 @@
         if (!overlay) return;
 
         const inputs = overlay.querySelectorAll('input, span');
+        console.log(inputs)
         const { changes, minimumExampleLengthChanged, newMinimumExampleLength } = gatherChanges(inputs);
-
         if (minimumExampleLengthChanged) {
             handleMinimumExampleLengthChange(newMinimumExampleLength, changes);
         } else {
@@ -1734,7 +1740,26 @@
 
             leftContainer.appendChild(label);
 
-            if (typeof value === 'boolean') {
+            if (key === 'RANDOM_SENTENCE') {
+                const select = document.createElement('select');
+                select.setAttribute('data-key', key);
+
+                // Add options to the select dropdown for the enum values
+                for (const [enumKey, enumValue] of Object.entries(RANDOM_SENTENCE_ENUM)) {
+                    const option = document.createElement('option');
+                    option.value = enumValue;
+                    option.text = enumKey.replace(/_/g, ' ').toLowerCase();
+                    option.selected = value === enumValue; // Set the current value as selected
+                    select.appendChild(option);
+                }
+
+                select.addEventListener('change', (event) => {
+                    CONFIG[key] = parseInt(event.target.value, 10); // Update the config with the selected value
+                    localStorage.setItem(`${scriptPrefix + configPrefix}${key}`, event.target.value); // Save to localStorage
+                });
+
+                rightContainer.appendChild(select);
+            } else if (typeof value === 'boolean') {
                 const checkboxContainer = document.createElement('div');
                 checkboxContainer.style.display = 'flex';
                 checkboxContainer.style.alignItems = 'center';
@@ -2019,7 +2044,18 @@
             if (savedValue === null) {continue};
 
             const valueType = typeof CONFIG[configKey];
-            if (configKey === 'HOTKEYS') {
+            if (configKey === 'RANDOM_SENTENCE') {
+                if (savedValue == 0){
+                    CONFIG[configKey] = RANDOM_SENTENCE_ENUM.DISABLE
+                }
+                if (savedValue == 1){
+                    CONFIG[configKey] = RANDOM_SENTENCE_ENUM.ON_FIRST
+                }
+                if (savedValue == 2){
+                    CONFIG[configKey] = RANDOM_SENTENCE_ENUM.EVERY_TIME
+                }
+            }
+            else if (configKey === 'HOTKEYS') {
                 CONFIG[configKey] = savedValue.split(' ')
             } else if (valueType === 'boolean') {
                 CONFIG[configKey] = savedValue === 'true';
@@ -2035,12 +2071,15 @@
         }
     }
 
-    function shuffle(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]]; // Swap elements
+    function process_sentences(sentences, first_call) {
+        console.log(CONFIG.RANDOM_SENTENCE)
+        if (CONFIG.RANDOM_SENTENCE > (first_call ? RANDOM_SENTENCE_ENUM.DISABLE : RANDOM_SENTENCE_ENUM.ON_GET)) {
+            for (let i = sentences.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [sentences[i], sentences[j]] = [sentences[j], sentences[i]]; // Swap elements
+            }
         }
-        return array;
+        return sentences;
     }
     //MAIN FUNCTIONS=====================================================================================================================
     function onPageLoad() {
@@ -2072,21 +2111,27 @@
         }
 
         // Retrieve stored data for the current vocabulary
-        const { index, exactState } = getStoredData(state.vocab);
-        state.currentExampleIndex = index;
+        const { sentence, exactState } = getStoredData(state.vocab);
         state.exactSearch = exactState;
+        console.log("Sentence",sentence)
 
         // Fetch data and embed image/audio if necessary
         if (state.vocab && !state.apiDataFetched) {
             getNadeshikoData(state.vocab, state.exactSearch)
                 .then(() => {
-                state.examples = shuffle(state.examples)
+                state.examples = process_sentences(state.examples,true)
                 console.log("PageLoad",state)
+                if (sentence) {
+                    state.currentExampleIndex = state.examples.findIndex(example => example.segment_info.content_jp === sentence);
+                }
                 preloadImages();
                 embedImageAndPlayAudio();
             })
                 .catch(console.error);
         } else if (state.apiDataFetched) {
+            if (sentence) {
+                state.currentExampleIndex = process_sentences(state.examples.findIndex(example => example.segment_info.content_jp === sentence),false);
+            }
             embedImageAndPlayAudio();
             //preloadImages();
             setVocabSize();
