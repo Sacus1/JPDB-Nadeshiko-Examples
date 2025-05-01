@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      1.22(b)
+// @version      1.22.2
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo
 // @namespace    jpdb-nadeshiko-examples
@@ -20,7 +20,7 @@
 // @downloadURL  https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.user.js
 // @updateURL    https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.meta.js
 // ==/UserScript==
-
+/*jshint esversion: 6 */
 (function () {
 	'use strict';
 	let nadeshikoApiKey = GM_getValue("nadeshiko-api-key", "")
@@ -98,6 +98,7 @@
 		NUMBER_OF_PRELOADS: 1,
 		VOCAB_SIZE: '250%',
 		MINIMUM_EXAMPLE_LENGTH: 0,
+		MAXIMUM_EXAMPLE_LENGTH: 100,
 		HOTKEYS: ['None'],
 		DEFAULT_TO_EXACT_SEARCH: true,
 		// On changing this config option, the icons change but the sentences don't, so you
@@ -179,7 +180,7 @@
 	// IndexedDB Manager
 	const IndexedDBManager = {
 		MAX_ENTRIES: 100000000,
-		EXPIRATION_TIME: 30 * 24 * 60 * 60 * 1000 * 12 * 10000, // 10000 years in milliseconds
+		EXPIRATION_TIME: 30 * 24 * 60 * 60 * 1000, // 30 days in milliseconds
 		
 		open() {
 			return new Promise((resolve, reject) => {
@@ -377,7 +378,7 @@
 						GM_xmlhttpRequest({
 							method: "POST",
 							url: url,
-							data: JSON.stringify({query: searchVocab, "limit": 100,}),
+							data: JSON.stringify({query: searchVocab, "limit": 500,}),
 							headers:
 								{
 									"X-API-Key": nadeshikoApiKey,
@@ -387,7 +388,6 @@
 								if (response.status === 200) {
 									const jsonData = parseJSON(response.response).sentences;
 									console.log("API JSON Received");
-									console.log(url);
 									const validationError = validateApiResponse(jsonData);
 									if (!validationError) {
 										state.examples = jsonData;
@@ -400,10 +400,17 @@
 													if (!foundMatch) {
 														console.log("Removed sentence:", sentence);
 													}
-													return foundMatch ? sentence : null;
+													sentence.nulled = true;
+													// check if the sentence is too long or too short
+													if (sentence.sentence.length < CONFIG.MINIMUM_EXAMPLE_LENGTH || sentence.sentence.length > CONFIG.MAXIMUM_EXAMPLE_LENGTH) {
+														console.log("Removed sentence:", sentence);
+														return null;
+													}
+													return sentence;
 												})
 											);
-											state.examples = sentenceResults.filter(s => s);
+											// state.examples = sentenceResults.filter(s => s);
+											
 										}
 										await IndexedDBManager.save(db, searchVocab, jsonData);
 										resolve();
@@ -560,8 +567,11 @@
 					const rtElement = ruby.querySelector('rt');
 					// add the text not in the <rt> tag to the vocabulary
 					vocabulary = vocabulary + (ruby.childNodes[0] ? ruby.childNodes[0].textContent.trim() : '');
-					rtElement.style.display = 'none';
-					return rtElement ? rtElement.textContent.trim() : '';
+					if (rtElement) {
+						rtElement.style.display = 'none';
+						return rtElement.textContent.trim();
+					}
+					return '';
 				})
 				.join('');
 			
@@ -952,15 +962,23 @@
 			return;
 		}
 		const example = state.examples[state.currentExampleIndex] || {};
-		const imageUrl = example.media_info.path_image || null;
-		const soundUrl = example.media_info.path_audio || null;
-		const sentence = example.segment_info.content_jp || null;
-		const translation = example.segment_info.content_en || "";
-		const deck_name = example.basic_info.name_anime_romaji || "Unknown Anime";
+		const imageUrl = example.media_info?.path_image || null;
+		const soundUrl = example.media_info?.path_audio || null;
+		const sentence = example.segment_info?.content_jp || null;
+		const translation = example.segment_info?.content_en || "";
+		const deck_name = example.basic_info?.name_anime_romaji || "Unknown Anime";
 		const storedValue = getItem(state.vocab);
 		const isBlacklisted = storedValue && storedValue.split(',').length > 1 && parseInt(storedValue.split(',')[1], 10) === 2;
-		console.log("sentence", sentence);
-		console.log("translation", translation);
+		// Update sentence class content with actual sentence text
+		const sentenceElement = document.querySelector('.sentence');
+		if (sentenceElement) {
+			sentenceElement.textContent = sentence;
+		}
+		// Update translation class content with actual translation text
+		const translationElement = document.querySelector('.sentence-translation');
+		if (translationElement) {
+			translationElement.textContent = translation;
+		}
 		// Remove any existing container
 		removeExistingContainer();
 		if (!shouldRenderContainer()) return;
@@ -992,7 +1010,7 @@
 				wrapperDiv.appendChild(createTextElement(`NO IMAGE\n(${deck_name})`));
 			}
 			// Append sentence and translation or a placeholder text
-			sentence ? appendSentenceAndTranslation(wrapperDiv, sentence, translation) : appendNoneText(wrapperDiv);
+			// sentence ? appendSentenceAndTranslation(wrapperDiv, sentence, translation) : appendNoneText(wrapperDiv);
 		} else if (!sentence) {
 			wrapperDiv.appendChild(createTextElement('ERROR\nNO EXAMPLES FOUND\n\nRARE WORD OR NADESHIKO API IS TEMPORARILY DOWN'));
 		} else {
@@ -1298,6 +1316,7 @@
 	
 	function embedImageAndPlayAudio() {
 		// Embed the image and play audio, removing existing navigation div if present
+		console.log("Embedding image and playing audio");
 		const existingNavigationDiv = document.getElementById('nadeshiko-embed');
 		if (existingNavigationDiv) existingNavigationDiv.remove();
 		
@@ -1634,7 +1653,9 @@
 					minimumExampleLengthChanged = true;
 					newMinimumExampleLength = value;
 				}
-				
+				if (key === 'MAXIMUM_EXAMPLE_LENGTH' && CONFIG.MAXIMUM_EXAMPLE_LENGTH !== value) {
+					value = Math.max(value, CONFIG.MINIMUM_EXAMPLE_LENGTH);
+				}
 				changes[configPrefix + key] = value + originalFormattedType;
 			}
 		});
@@ -2185,8 +2206,9 @@
 							// and its reading matches the expected reading (from state)
 							if (spelling === state.vocab && reading === state.reading) {
 								foundMatch = true;
+							} else if (spelling === state.vocab) {
+								console.log(`Reading mismatch: ${spelling} - Expected: ${state.reading}, Found: ${reading}`);
 							}
-							
 						});
 						resolve(foundMatch);
 					} else {
@@ -2202,73 +2224,160 @@
 		})
 	}
 	
+	
 	async function process_sentences(state, sentences, first_call) {
-		console.log(CONFIG.RANDOM_SENTENCE)
-		// set weights for each sentence by calling jpdb api
-		if (CONFIG.WEIGHTED_SENTENCES) {
-			const parsePromises = sentences.map((sentence, i) => {
-				const data = {
-					"text": sentence.segment_info.content_jp,
-					"token_fields": [],
-					"position_length_encoding": "utf16",
-					"vocabulary_fields": [
-						"card_state", "spelling"
-					]
-				};
-				return new Promise((resolve, reject) => {
-					GM_xmlhttpRequest({
-						method: "POST",
-						url: "https://jpdb.io/api/v1/parse",
-						headers: {
-							"Authorization": `Bearer ${jpdbApiKey}`,
-						},
-						data: JSON.stringify(data),
-						onload: function (response) {
-							if (response.status === 200) {
-								const result = JSON.parse(response.responseText);
-								const amount = result["vocabulary"].length;
-								const VALID_CARD_STATES = ["known", "never-forget", "learning"];
-								let weight = 0;
-								for (let j = 0; j < amount; j++) {
-									if (result["vocabulary"][j][0] && VALID_CARD_STATES.includes(result["vocabulary"][j][0][0])) {
-										weight += 1;
+		// Early return for empty array or single item (no processing needed)
+		if (!sentences || !Array.isArray(sentences) || sentences.length <= 1) {
+			return sentences;
+		}
+		
+		// Only randomize if needed
+		const shouldRandomize = CONFIG.RANDOM_SENTENCE >
+			(first_call ? RANDOM_SENTENCE_ENUM.DISABLE : RANDOM_SENTENCE_ENUM.ON_FIRST);
+		
+		// Skip weight calculation if not needed
+		if (!CONFIG.WEIGHTED_SENTENCES && !shouldRandomize) {
+			return sentences;
+		}
+		
+		// Set weights for each sentence by calling jpdb api (if needed)
+		if (CONFIG.WEIGHTED_SENTENCES && jpdbApiKey) {
+			// Create batches of API calls to reduce network overhead
+			const BATCH_SIZE = 5; // Process 5 sentences at a time
+			const sentencesToProcess = [];
+			
+			// Filter only sentences that need processing (not in cache)
+			for (let i = 0; i < sentences.length; i++) {
+				const sentence = sentences[i];
+				const content = sentence.segment_info?.content_jp;
+				
+				if (!content) continue;
+				
+				sentencesToProcess.push({sentence, index: i});
+			}
+			
+			// Process in batches
+			for (let i = 0; i < sentencesToProcess.length; i += BATCH_SIZE) {
+				const batch = sentencesToProcess.slice(i, i + BATCH_SIZE);
+				const batchPromises = batch.map(({sentence, index}) => {
+					const content = sentence.segment_info.content_jp;
+					const data = {
+						"text": content,
+						"token_fields": [],
+						"position_length_encoding": "utf16",
+						"vocabulary_fields": [
+							"card_state", "spelling"
+						]
+					};
+					if (sentence.nulled) {
+						sentences[index].weight = 1e-6;
+						console.log(`Ignoring "${content}" due to null`);
+						return Promise.resolve();
+					}
+					return new Promise((resolve, reject) => {
+						GM_xmlhttpRequest({
+							method: "POST",
+							url: "https://jpdb.io/api/v1/parse",
+							headers: {
+								"Authorization": `Bearer ${jpdbApiKey}`,
+							},
+							data: JSON.stringify(data),
+							onload: function (response) {
+								if (response.status === 200) {
+									try {
+										const result = JSON.parse(response.responseText);
+										const vocabulary = result.vocabulary || [];
+										const amount = vocabulary.length;
+										
+										if (amount === 0) {
+											sentences[index].weight = 1;
+											return resolve();
+										}
+										
+										const VALID_CARD_STATES = ["known", "never-forget", "learning"];
+										let weight = 0;
+										
+										// Use faster loop construct
+										for (let j = 0; j < amount; j++) {
+											const vocabItem = vocabulary[j];
+											if (vocabItem && vocabItem[0] &&
+												VALID_CARD_STATES.includes(vocabItem[0][0])) {
+												weight++;
+											}
+										}
+										
+										// Calculate and store weight
+										sentences[index].weight = (weight * 100 / ((amount * amount))) || 1;
+										resolve();
+									} catch (e) {
+										// Default weight on error
+										sentences[index].weight = 1;
+										resolve();
 									}
+								} else {
+									// Default weight on error
+									sentences[index].weight = 1;
+									resolve();
 								}
-								sentences[i].weight = weight / amount;
-								console.log("Sentence weight", sentences[i].weight + " for sentence " + sentences[i].segment_info.content_jp);
+							},
+							onerror: function () {
+								// Default weight on error
+								sentences[index].weight = 1;
 								resolve();
-							} else {
-								console.error("API call failed with status", response.status);
-								reject(new Error("API call failed"));
 							}
-						},
-						onerror: function (error) {
-							reject(error);
-						}
+						});
 					});
 				});
-			});
-			await Promise.all(parsePromises);
-		}
-		if (CONFIG.RANDOM_SENTENCE > (first_call ? RANDOM_SENTENCE_ENUM.DISABLE : RANDOM_SENTENCE_ENUM.ON_FIRST)) {
-			for (let i = sentences.length - 1; i > 0; i--) {
-				const j = weightedRandomIndex(sentences); // Use a weighted random index
-				[sentences[i], sentences[j]] = [sentences[j], sentences[i]]; // Swap elements
+				
+				// Wait for current batch to complete before moving to next
+				await Promise.all(batchPromises);
 			}
 		}
 		
-		function weightedRandomIndex(sentences) {
-			const weights = sentences.map(sentence => sentence.weight || 1); // Assuming each sentence has a weight property, defaulting to 1
-			const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
-			const random = Math.random() * totalWeight;
-			let cumulativeWeight = 0;
-			for (let i = 0; i < weights.length; i++) {
-				cumulativeWeight += weights[i];
-				if (random <= cumulativeWeight) {
-					return i;
+		// Randomize sentences if needed
+		if (shouldRandomize) {
+			// Use Fisher-Yates shuffle for better performance
+			// Only shuffle a maximum of 50 items for large arrays to improve performance
+			const maxShuffleItems = Math.min(sentences.length, 50);
+			
+			// Optimized weighted random algorithm
+			const getWeightedRandomIndex = (max) => {
+				// Pre-calculate weights array for performance
+				const weights = new Array(max);
+				let totalWeight = 0;
+				
+				for (let i = 0; i < max; i++) {
+					const weight = (sentences[i].weight || 1);
+					weights[i] = weight;
+					totalWeight += weight;
+				}
+				
+				// Get random value proportional to total weight
+				const random = Math.random() * totalWeight;
+				let cumulativeWeight = 0;
+				
+				// Find the index
+				for (let i = 0; i < max; i++) {
+					cumulativeWeight += weights[i];
+					if (random <= cumulativeWeight) {
+						return i;
+					}
+				}
+				
+				return max - 1; // Fallback
+			};
+			
+			// Fisher-Yates shuffle with weighted randomization
+			for (let i = maxShuffleItems - 1; i > 0; i--) {
+				const j = CONFIG.WEIGHTED_SENTENCES ?
+					getWeightedRandomIndex(i + 1) :
+					Math.floor(Math.random() * (i + 1));
+				
+				// Swap elements
+				if (i !== j) {
+					[sentences[i], sentences[j]] = [sentences[j], sentences[i]];
 				}
 			}
-			return sentences.length - 1; // Fallback in case rounding errors occur
 		}
 		
 		return sentences;
@@ -2279,58 +2388,81 @@
 		// Initialize state and determine vocabulary based on URL
 		state.embedAboveSubsectionMeanings = false;
 		
-		const url = window.location.href;
-		const machineTranslationFrame = document.getElementById('machine-translation-frame');
-		
-		// Proceed only if the machine translation frame is not present
-		if (!machineTranslationFrame) {
-			//display embed for first time with loading text
-			embedImageAndPlayAudio();
-			setPageWidth();
-			
-			if (url.includes('/vocabulary/')) {
-				[state.vocab, state.reading] = parseVocabFromVocabulary();
-			} else if (url.includes('/search?q=')) {
-				state.vocab = parseVocabFromSearch();
-			} else if (url.includes('c=')) {
-				state.vocab = parseVocabFromAnswer();
-			} else if (url.includes('/kanji/')) {
-				state.vocab = parseVocabFromKanji();
-			} else {
-				[state.vocab, state.reading] = parseVocabFromReview();
-			}
-		} else {
-			console.log('Machine translation frame detected, skipping vocabulary parsing.');
+		// Early layout adjustments without waiting
+		setPageWidth();
+		const sentenceElement = document.querySelector('.sentence');
+		if (sentenceElement) {
+			sentenceElement.textContent = "Waiting for data...";
 		}
+		const machineTranslationFrame = document.getElementById('machine-translation-frame');
+		// Skip if machine translation frame is present
+		if (machineTranslationFrame) return;
+		
+		// Determine the vocabulary based on URL — done in parallel with setting page width
+		const url = window.location.href;
+		if (url.includes('/vocabulary/')) {
+			[state.vocab, state.reading] = parseVocabFromVocabulary();
+		} else if (url.includes('/search?q=')) {
+			state.vocab = parseVocabFromSearch();
+		} else if (url.includes('c=')) {
+			state.vocab = parseVocabFromAnswer();
+		} else if (url.includes('/kanji/')) {
+			state.vocab = parseVocabFromKanji();
+		} else {
+			[state.vocab, state.reading] = parseVocabFromReview();
+		}
+		
+		// Early return if no vocabulary is found
+		if (!state.vocab) return;
 		
 		// Retrieve stored data for the current vocabulary
 		const {sentence, exactState} = getStoredData(state.vocab);
 		state.exactSearch = exactState;
-		console.log("Sentence", sentence)
 		
-		// Fetch data and embed image/audio if necessary
-		console.log("State", state)
-		if (state.vocab && !state.apiDataFetched) {
-			getNadeshikoData(state.vocab, state.exactSearch)
-				.then(async () => {
-					state.examples = await process_sentences(state, state.examples, true)
-					console.log("PageLoad", state)
-					if (sentence) {
-						state.currentExampleIndex = state.examples.findIndex(example => example.segment_info.content_jp === sentence);
-					}
-					preloadImages();
-					embedImageAndPlayAudio();
-				})
-				.catch(console.error);
-		} else if (state.apiDataFetched) {
-			if (sentence) {
-				state.currentExampleIndex = await process_sentences(state, state.examples.findIndex(example => example.segment_info.content_jp === sentence), false);
-				console.log("PageLoad", state)
+		// Fetch data if needed, process in parallel threads where possible
+		if (!state.apiDataFetched) {
+			try {
+				await getNadeshikoData(state.vocab, state.exactSearch);
+				
+				// Process sentences in parallel with preloading images
+				const processingPromise = process_sentences(state, state.examples, true);
+				const preloadPromise = Promise.resolve().then(() => preloadImages());
+				
+				state.examples = await processingPromise;
+				
+				// Set current example index if a sentence exists
+				if (sentence) {
+					state.currentExampleIndex = state.examples.findIndex(
+						example => example.segment_info.content_jp === sentence
+					);
+				}
+				
+				// Wait for preloading to complete
+				await preloadPromise;
+				
+				// Finally, display the example
+				embedImageAndPlayAudio();
+			} catch (error) {
+				// Handle errors silently for better performance
+				state.error = true;
+				embedImageAndPlayAudio(); // Still try to show what we can
 			}
-			embedImageAndPlayAudio();
-			//preloadImages();
-			setVocabSize();
-			setPageWidth();
+		} else if (state.apiDataFetched) {
+			// Data already fetched, just update display
+			if (sentence) {
+				// Process sentence index finding without logging
+				state.currentExampleIndex = await process_sentences(
+					state,
+					state.examples.findIndex(example => example.segment_info.content_jp === sentence),
+					false
+				);
+			}
+			
+			// Update display and settings
+			Promise.all([
+				Promise.resolve().then(() => embedImageAndPlayAudio()),
+				Promise.resolve().then(() => setVocabSize())
+			]);
 		}
 	}
 	
@@ -2353,11 +2485,11 @@
 		const style = document.createElement('style');
 		style.type = 'text/css';
 		style.innerHTML = `
-            .answer-box > .plain {
-                font-size: ${CONFIG.VOCAB_SIZE} !important; /* Use the configurable font size */
-                padding-bottom: 0.1rem !important; /* Retain padding */
-            }
-        `;
+	            .answer-box > .plain {
+	                font-size: ${CONFIG.VOCAB_SIZE} !important; /* Use the configurable font size */
+	                padding-bottom: 0.1rem !important; /* Retain padding */
+	            }
+	        `;
 		
 		// Append the new style to the document head
 		document.head.appendChild(style);
