@@ -2201,20 +2201,78 @@
 		})
 	}
 	
-	function process_sentences(state, sentences, first_call) {
+	async function process_sentences(state, sentences, first_call) {
 		console.log(CONFIG.RANDOM_SENTENCE)
-		
+		// set weights for each sentence by calling jpdb api
+		const parsePromises = sentences.map((sentence, i) => {
+			const data = {
+				"text": sentence.segment_info.content_jp,
+				"token_fields": [],
+				"position_length_encoding": "utf16",
+				"vocabulary_fields": [
+					"card_state", "spelling"
+				]
+			};
+			return new Promise((resolve, reject) => {
+				GM_xmlhttpRequest({
+					method: "POST",
+					url: "https://jpdb.io/api/v1/parse",
+					headers: {
+						"Authorization": `Bearer ${jpdbApiKey}`,
+					},
+					data: JSON.stringify(data),
+					onload: function (response) {
+						if (response.status === 200) {
+							const result = JSON.parse(response.responseText);
+							const amount = result["vocabulary"].length;
+							const VALID_CARD_STATES = ["known", "never-forget", "learning"];
+							let weight = 0;
+							for (let j = 0; j < amount; j++) {
+								if (result["vocabulary"][j][0] && VALID_CARD_STATES.includes(result["vocabulary"][j][0][0])) {
+									weight += 1;
+								}
+							}
+							sentences[i].weight = weight / amount;
+							console.log("Sentence weight", sentences[i].weight + " for sentence " + sentences[i].segment_info.content_jp);
+							resolve();
+						} else {
+							console.error("API call failed with status", response.status);
+							reject(new Error("API call failed"));
+						}
+					},
+					onerror: function (error) {
+						reject(error);
+					}
+				});
+			});
+		});
+		await Promise.all(parsePromises);
 		if (CONFIG.RANDOM_SENTENCE > (first_call ? RANDOM_SENTENCE_ENUM.DISABLE : RANDOM_SENTENCE_ENUM.ON_FIRST)) {
 			for (let i = sentences.length - 1; i > 0; i--) {
-				const j = Math.floor(Math.random() * (i + 1));
+				const j = weightedRandomIndex(sentences); // Use a weighted random index
 				[sentences[i], sentences[j]] = [sentences[j], sentences[i]]; // Swap elements
 			}
 		}
+		
+		function weightedRandomIndex(sentences) {
+			const weights = sentences.map(sentence => sentence.weight || 1); // Assuming each sentence has a weight property, defaulting to 1
+			const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+			const random = Math.random() * totalWeight;
+			let cumulativeWeight = 0;
+			for (let i = 0; i < weights.length; i++) {
+				cumulativeWeight += weights[i];
+				if (random <= cumulativeWeight) {
+					return i;
+				}
+			}
+			return sentences.length - 1; // Fallback in case rounding errors occur
+		}
+		
 		return sentences;
 	}
 	
 	//MAIN FUNCTIONS=====================================================================================================================
-	function onPageLoad() {
+	async function onPageLoad() {
 		// Initialize state and determine vocabulary based on URL
 		state.embedAboveSubsectionMeanings = false;
 		
@@ -2252,7 +2310,7 @@
 		if (state.vocab && !state.apiDataFetched) {
 			getNadeshikoData(state.vocab, state.exactSearch)
 				.then(async () => {
-					state.examples = process_sentences(state, state.examples, true)
+					state.examples = await process_sentences(state, state.examples, true)
 					console.log("PageLoad", state)
 					if (sentence) {
 						state.currentExampleIndex = state.examples.findIndex(example => example.segment_info.content_jp === sentence);
@@ -2263,7 +2321,7 @@
 				.catch(console.error);
 		} else if (state.apiDataFetched) {
 			if (sentence) {
-				state.currentExampleIndex = process_sentences(state, state.examples.findIndex(example => example.segment_info.content_jp === sentence), false);
+				state.currentExampleIndex = await process_sentences(state, state.examples.findIndex(example => example.segment_info.content_jp === sentence), false);
 				console.log("PageLoad", state)
 			}
 			embedImageAndPlayAudio();
