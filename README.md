@@ -39,7 +39,8 @@ The settings menu (**☰**) allows customization of the script's behavior:
 - **Auto Play Sound** – Automatically play audio when changing examples.  
 - **Number of Preloads** – Set how many examples load in the background.  
 - **Vocab Size** – Adjust vocab text size in reviews.  
-- **Default to Exact Search** – Enables exact search option by default.  
+- **Default to Exact Search** – Enables exact search option by default.
+- **Hotkeys** – Buttons to go to next/previous example. Can easily add any key by editing line #27
 - **Minimum Example Length** – Set a lower limit for sentence length.  
   - **⚠ Warning:** Changing this **will delete all current favorites.**  
 - **Blacklist** – Prevent specific examples from appearing.  
@@ -61,6 +62,11 @@ Favorites allow you to pick a default example for a word. Next time the word app
 - 📥 **Download at Greasyfork:** [https://greasyfork.org/en/scripts/529745-jpdb-nadeshiko-examples](https://greasyfork.org/en/scripts/529745-jpdb-nadeshiko-examples)
 - 🛠 **JPDB Website:** [https://jpdb.io](https://jpdb.io)  
 - 🎞 **Nadeshiko:** [https://nadeshiko.co](https://nadeshiko.co)
+
+## Similar Projects  
+ 
+- **JPDB Media Support:** [https://github.com/felix-ops/JPDB-Media-Support](https://github.com/felix-ops/JPDB-Media-Support)  
+- **Standalone Chrome Variant:** [https://chromewebstore.google.com/detail/jpdb-immersion-kit-exampl/knedmjcggobmokkephmaggbgakjjckbf](https://chromewebstore.google.com/detail/jpdb-immersion-kit-exampl/knedmjcggobmokkephmaggbgakjjckbf) 
 
 ## Contributing  
 

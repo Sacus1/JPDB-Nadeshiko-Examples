@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      1.21.4
+// @version      1.22
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo
 // @namespace    jpdb-nadeshiko-examples
@@ -16,8 +16,8 @@
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
 // @license      MIT
-// @downloadURL https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.user.js
-// @updateURL https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.meta.js
+// @downloadURL  https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.user.js
+// @updateURL    https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.meta.js
 // ==/UserScript==
 
 (function() {
@@ -39,6 +39,12 @@
         return apiKey;
     }
 
+    // to use custom hotkeys just add them into this array following the same format. Any single keys except space
+    // should work. If you want to use special keys, check the linked page for how to represent them in the array
+    // (link leads to the arrow keys part so you can compare with the array and be sure which part to write):
+    // https://developer.mozilla.org/en-US/docs/Web/API/UI_Events/Keyboard_event_key_values#navigation_keys
+    const hotkeyOptions = ['None', 'ArrowLeft ArrowRight', ', .', '[ ]', 'Q W'];
+
     const CONFIG = {
         IMAGE_WIDTH: '400px',
         WIDE_MODE: true,
@@ -55,6 +61,7 @@
         NUMBER_OF_PRELOADS: 1,
         VOCAB_SIZE: '250%',
         MINIMUM_EXAMPLE_LENGTH: 0,
+        HOTKEYS: ['None'],
         DEFAULT_TO_EXACT_SEARCH: true
         // On changing this config option, the icons change but the sentences don't, so you
         // have to click once to match up the icons and again to actually change the sentences
@@ -874,6 +881,9 @@
         }
     }
 
+    // has to be declared (referenced in multiple functions but definition requires variables local to one function)
+    let hotkeysListener;
+
     function renderImageAndPlayAudio(vocab, shouldAutoPlaySound) {
         if (state.apiDataFetched == false){
             console.log("No data");
@@ -943,6 +953,39 @@
         if (CONFIG.AUTO_PLAY_SOUND && shouldAutoPlaySound) {
             playAudio(soundUrl);
         }
+
+        // Link hotkeys
+        if (CONFIG.HOTKEYS.indexOf("None") === -1) {
+        const leftHotkey = CONFIG.HOTKEYS[0];
+        const rightHotkey = CONFIG.HOTKEYS[1];
+    
+            hotkeysListener = (event) => {
+                if (event.repeat) return;
+                switch (event.key.toLowerCase()) {
+                    case leftHotkey.toLowerCase():
+                        if (leftArrow.disabled) {
+                            // listener gets removed, so need to re-add
+                            window.addEventListener('keydown', hotkeysListener, {once: true});
+                        } else {
+                            leftArrow.click(); // don't need to re-add listener because renderImageAndPlayAudio() will run again
+                        }
+                        break;
+                    case rightHotkey.toLowerCase():
+                        if (rightArrow.disabled) {
+                            // listener gets removed, so need to re-add
+                            window.addEventListener('keydown', hotkeysListener, {once: true});
+                        } else {
+                            rightArrow.click(); // don't need to re-add listener because renderImageAndPlayAudio() will run again
+                        }
+                        break;
+                    default:
+                        // listener gets removed, so need to re-add
+                        window.addEventListener('keydown', hotkeysListener, {once: true});
+                }
+            }
+            
+            window.addEventListener('keydown', hotkeysListener, {once: true});
+        }
     }
 
     function removeExistingContainer() {
@@ -951,6 +994,7 @@
         if (existingContainer) {
             existingContainer.remove();
         }
+        window.removeEventListener('keydown', hotkeysListener);
     }
 
     function shouldRenderContainer() {
@@ -1162,7 +1206,7 @@
                 wrapper.appendChild(originalContentWrapper);
                 wrapper.appendChild(containerDiv);
             }
-
+            
             if (vboxGap) {
                 const existingDynamicDiv = vboxGap.querySelector('#dynamic-content');
                 if (existingDynamicDiv) {
@@ -1516,6 +1560,8 @@
                 value = parseFloat(input.textContent);
             } else if (type === 'string') {
                 value = input.textContent;
+            } else if (type === 'object' && key === 'HOTKEYS') {
+                value = input.textContent.replace(' and ', ' ');
             }
 
             if (key && type) {
@@ -1572,6 +1618,7 @@
 
     function finalizeSaveConfig() {
         loadConfig();
+        window.removeEventListener('keydown', hotkeysListener);
         renderImageAndPlayAudio(state.vocab, CONFIG.AUTO_PLAY_SOUND);
         const overlay = document.getElementById('overlayMenu');
         if (overlay) {
@@ -1872,6 +1919,80 @@
                 });
 
                 rightContainer.appendChild(numberContainer);
+            } else if (typeof value === 'object') {
+                const maxAllowedIndex = hotkeyOptions.length - 1
+                
+                let currentValue = value;
+                let choiceIndex = hotkeyOptions.indexOf(currentValue.join(' '));
+                if (choiceIndex === -1) {
+                    currentValue = hotkeyOptions[0].split(' ');
+                    choiceIndex = 0;
+                }
+                const textContainer = document.createElement('div');
+                textContainer.style.display = 'flex';
+                textContainer.style.alignItems = 'center';
+                textContainer.style.justifyContent = 'center';
+
+                const decrementButton = document.createElement('button');
+                decrementButton.textContent = '<';
+                decrementButton.style.marginRight = '5px';
+
+                const input = document.createElement('span');
+                input.textContent = currentValue.join(' and ');
+                input.style.margin = '0 10px';
+                input.style.minWidth = '3ch';
+                input.style.textAlign = 'center';
+                input.setAttribute('data-key', key);
+                input.setAttribute('data-type', 'object');
+                input.setAttribute('data-type-part', '');
+
+                const incrementButton = document.createElement('button');
+                incrementButton.textContent = '>';
+                incrementButton.style.marginLeft = '5px';
+
+                const updateButtonStates = () => {
+                    if (choiceIndex <= 0) {
+                        decrementButton.disabled = true;
+                        decrementButton.style.color = 'grey';
+                    } else {
+                        decrementButton.disabled = false;
+                        decrementButton.style.color = '';
+                    }
+                    if (choiceIndex >= maxAllowedIndex) {
+                        incrementButton.disabled = true;
+                        incrementButton.style.color = 'grey';
+                    } else {
+                        incrementButton.disabled = false;
+                        incrementButton.style.color = '';
+                    }
+                };
+
+                decrementButton.addEventListener('click', () => {
+                    if (choiceIndex > 0) {
+                        choiceIndex -= 1;
+                        currentValue = hotkeyOptions[choiceIndex].split(' ');
+                        input.textContent = currentValue.join(' and ');
+                        updateButtonStates();
+                    }
+                });
+
+                incrementButton.addEventListener('click', () => {
+                    if (choiceIndex < maxAllowedIndex) {
+                        choiceIndex += 1;
+                        currentValue = hotkeyOptions[choiceIndex].split(' ');
+                        input.textContent = currentValue.join(' and ');
+                        updateButtonStates();
+                    }
+                });
+
+                textContainer.appendChild(decrementButton);
+                textContainer.appendChild(input);
+                textContainer.appendChild(incrementButton);
+
+                // Initialize button states
+                updateButtonStates();
+    
+                rightContainer.appendChild(textContainer);
             }
 
             optionContainer.appendChild(leftContainer);
@@ -1898,9 +2019,11 @@
             if (savedValue === null) {continue};
 
             const valueType = typeof CONFIG[configKey];
-            if (valueType === 'boolean') {
+            if (configKey === 'HOTKEYS') {
+                CONFIG[configKey] = savedValue.split(' ')
+            } else if (valueType === 'boolean') {
                 CONFIG[configKey] = savedValue === 'true';
-                if (configKey === "DEFAULT_TO_EXACT_SEARCH") { state.exactSearch = CONFIG.DEFAULT_TO_EXACT_SEARCH }
+                if (configKey === 'DEFAULT_TO_EXACT_SEARCH') { state.exactSearch = CONFIG.DEFAULT_TO_EXACT_SEARCH }
                 // I wonder if this is the best way to do this...
                 // Probably not because we could just have a single variable to store both, but it would have to be in config and
                 // it would be a bit weird to have the program modifying config when the actual config settings aren't changing
