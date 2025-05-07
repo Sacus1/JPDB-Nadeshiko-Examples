@@ -396,21 +396,11 @@
 										if (state.vocab && state.reading) {
 											const sentenceResults = await Promise.all(
 												state.examples.map(async sentence => {
-													const foundMatch = await checkVocabInSentence(state, sentence);
-													if (!foundMatch) {
-														console.log("Removed sentence:", sentence);
-													}
-													sentence.nulled = true;
-													// check if the sentence is too long or too short
-													if (sentence.sentence.length < CONFIG.MINIMUM_EXAMPLE_LENGTH || sentence.sentence.length > CONFIG.MAXIMUM_EXAMPLE_LENGTH) {
-														console.log("Removed sentence:", sentence);
-														return null;
-													}
-													return sentence;
+													return await preprocessSentence(sentence);
 												})
 											);
-											// state.examples = sentenceResults.filter(s => s);
-											
+											state.examples = sentenceResults.filter(s => s);
+
 										}
 										await IndexedDBManager.save(db, searchVocab, jsonData);
 										resolve();
@@ -471,7 +461,71 @@
 		return null; // No error
 	}
 	
-	
+	async function preprocessSentence(sentence) {
+		const foundMatch = await checkVocabInSentence(state, sentence);
+		const content = sentence.segment_info.content_jp;
+		
+		if (!foundMatch) {
+			console.log("No match found in sentence:", sentence, "content:", content);
+			sentence.nulled = true;
+		}
+		// check if the sentence is too long or too short
+		if (content.length < CONFIG.MINIMUM_EXAMPLE_LENGTH || content.length > CONFIG.MAXIMUM_EXAMPLE_LENGTH) {
+			console.log("Removed sentence:", sentence);
+			return null;
+		}
+		// Set weights for each sentence by calling jpdb api (if needed)
+		if (CONFIG.WEIGHTED_SENTENCES && jpdbApiKey) {
+			const data = {
+				text: content,
+				token_fields: [],
+				position_length_encoding: "utf16",
+				vocabulary_fields: ["card_state", "spelling"]
+			};
+			if (sentence.nulled) {
+				sentence.weight = 1e-6;
+				console.log("Ignoring ", sentence, " due to null");
+			} else {
+				await new Promise((resolve) => {
+					GM_xmlhttpRequest({
+						method: "POST",
+						url: "https://jpdb.io/api/v1/parse",
+						headers: {Authorization: `Bearer ${jpdbApiKey}`},
+						data: JSON.stringify(data),
+						onload: function (response) {
+							let weight = 1;
+							if (response.status === 200) {
+								try {
+									const vocab = JSON.parse(response.responseText).vocabulary || [];
+									if (vocab.length > 0) {
+										const VALID_CARD_STATES = ["known", "never-forget", "learning", "due"];
+										let matchCount = 0;
+										for (const item of vocab) {
+											if (item && item[0] && VALID_CARD_STATES.includes(item[0][0])) {
+												matchCount++;
+											}
+										}
+										weight = (matchCount * 100 / (vocab.length));
+									}
+								} catch {
+									console.error("Error parsing parse response");
+								}
+							}
+							sentence.weight = weight;
+							resolve();
+						},
+						onerror: function () {
+							sentence.weight = 1;
+							resolve();
+						}
+					});
+				});
+			}
+		}
+		
+		return sentence;
+	}
+
 	//FAVORITE DATA FUNCTIONS=====================================================================================================================
 	function getStoredData(key) {
 		// Retrieve the stored value from localStorage using the provided key
@@ -2260,100 +2314,6 @@
 			return sentences;
 		}
 		
-		// Set weights for each sentence by calling jpdb api (if needed)
-		if (CONFIG.WEIGHTED_SENTENCES && jpdbApiKey) {
-			// Create batches of API calls to reduce network overhead
-			const BATCH_SIZE = 5; // Process 5 sentences at a time
-			const sentencesToProcess = [];
-			
-			// Filter only sentences that need processing (not in cache)
-			for (let i = 0; i < sentences.length; i++) {
-				const sentence = sentences[i];
-				const content = sentence.segment_info?.content_jp;
-				
-				if (!content) continue;
-				
-				sentencesToProcess.push({sentence, index: i});
-			}
-			
-			// Process in batches
-			for (let i = 0; i < sentencesToProcess.length; i += BATCH_SIZE) {
-				const batch = sentencesToProcess.slice(i, i + BATCH_SIZE);
-				const batchPromises = batch.map(({sentence, index}) => {
-					const content = sentence.segment_info.content_jp;
-					const data = {
-						"text": content,
-						"token_fields": [],
-						"position_length_encoding": "utf16",
-						"vocabulary_fields": [
-							"card_state", "spelling"
-						]
-					};
-					if (sentence.nulled) {
-						sentences[index].weight = 1e-6;
-						console.log(`Ignoring "${content}" due to null`);
-						return Promise.resolve();
-					}
-					return new Promise((resolve, reject) => {
-						GM_xmlhttpRequest({
-							method: "POST",
-							url: "https://jpdb.io/api/v1/parse",
-							headers: {
-								"Authorization": `Bearer ${jpdbApiKey}`,
-							},
-							data: JSON.stringify(data),
-							onload: function (response) {
-								if (response.status === 200) {
-									try {
-										const result = JSON.parse(response.responseText);
-										const vocabulary = result.vocabulary || [];
-										const amount = vocabulary.length;
-										
-										if (amount === 0) {
-											sentences[index].weight = 1;
-											return resolve();
-										}
-										
-										const VALID_CARD_STATES = ["known", "never-forget", "learning"];
-										let weight = 0;
-										
-										// Use faster loop construct
-										for (let j = 0; j < amount; j++) {
-											const vocabItem = vocabulary[j];
-											if (vocabItem && vocabItem[0] &&
-												VALID_CARD_STATES.includes(vocabItem[0][0])) {
-												weight++;
-											}
-										}
-										
-										// Calculate and store weight
-										sentences[index].weight = (weight * 100 / ((amount * amount))) || 1;
-										resolve();
-									} catch (e) {
-										// Default weight on error
-										sentences[index].weight = 1;
-										resolve();
-									}
-								} else {
-									// Default weight on error
-									sentences[index].weight = 1;
-									resolve();
-								}
-							},
-							onerror: function () {
-								// Default weight on error
-								sentences[index].weight = 1;
-								resolve();
-							}
-						});
-					});
-				});
-				
-				// Wait for current batch to complete before moving to next
-				await Promise.all(batchPromises);
-			}
-		}
-		
 		// Randomize sentences if needed
 		if (shouldRandomize) {
 			// Use Fisher-Yates shuffle for better performance
@@ -2361,12 +2321,13 @@
 			const maxShuffleItems = Math.min(sentences.length, 50);
 			
 			// Optimized weighted random algorithm
-			const getWeightedRandomIndex = (max) => {
+			const getWeightedRandomIndex = async (max) => {
 				// Pre-calculate weights array for performance
 				const weights = new Array(max);
 				let totalWeight = 0;
 				
 				for (let i = 0; i < max; i++) {
+					if (!sentences[i]) await preprocessSentence(sentences[i]);
 					const weight = (sentences[i].weight || 1);
 					weights[i] = weight;
 					totalWeight += weight;
@@ -2390,7 +2351,7 @@
 			// Fisher-Yates shuffle with weighted randomization
 			for (let i = maxShuffleItems - 1; i > 0; i--) {
 				const j = CONFIG.WEIGHTED_SENTENCES ?
-					getWeightedRandomIndex(i + 1) :
+					await getWeightedRandomIndex(i + 1) :
 					Math.floor(Math.random() * (i + 1));
 				
 				// Swap elements
