@@ -1047,6 +1047,7 @@
 					translationDiv.style.display = 'flex';
 					translationDiv.style.justifyContent = 'center';
 					translationDiv.innerHTML = `<div class="sentence-translation blur" style="" onclick="this.classList.remove('blur');" onmouseover="this.classList.remove('blur');">${translation}</div>`;
+					divAbove.appendChild(translationDiv);
 				}
 			}
 		} else {
@@ -1057,6 +1058,7 @@
 				sentenceDiv.style.display = 'flex';
 				sentenceDiv.style.justifyContent = 'center';
 				sentenceDiv.innerHTML = `<div style="display: flex;"><div style="display: flex; flex-direction: column;"><div style="display: flex; align-items: baseline; column-gap: 0.25rem;" class="card-sentence"><div class="sentence" style="margin-left: 0.3rem;">${sentence}</div><a class="icon-link" href="/edit-shown-sentence?v=1168870&amp;s=3448502455&amp;r=1858493110&amp;origin=%2Freview%3Fc%3Dvf%2C1168870%2C3448502455%26r%3D2"><i class="ti ti-pencil"></i></a></div><div style="display: flex;justify-content: center;"><div class="sentence-translation blur" style="" onclick="this.classList.remove('blur');" onmouseover="this.classList.remove('blur');">${translation}</div></div></div></div>`;
+				answerBox.appendChild(sentenceDiv);
 				
 			}
 		}

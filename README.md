@@ -13,14 +13,14 @@ A Tampermonkey userscript for **jpdb.io** that embeds anime examples from **Nade
 
 ## Controls  
 
-| Icon | Function |
-|------|----------|
-| 🔊 **Speaker** | Play example audio. |
-| ⭐ **Star** | Mark as favorite (★ = favorite, ☆ = non-favorite). |
+| Icon                | Function                                           |
+|---------------------|----------------------------------------------------|
+| 🔊 **Speaker**      | Play example audio.                                |
+| ⭐ **Star**          | Mark as favorite (★ = favorite, ☆ = non-favorite). |
 | 「」 **Exact Search** | Toggle exact search (「」 = enabled, 『』 = disabled). |
-| ◀ **Left Arrow** | Go back one example. |
-| ▶ **Right Arrow** | Go forward one example. |
-| ☰ **Menu Button** | Open the settings menu. |
+| ◀ **Left Arrow**    | Go back one example.                               |
+| ▶ **Right Arrow**   | Go forward one example.                            |
+| ☰ **Menu Button**   | Open the settings menu.                            |
 
 ## Config Options  
 
