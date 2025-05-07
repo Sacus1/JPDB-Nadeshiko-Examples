@@ -20,18 +20,19 @@
 // @downloadURL  https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.user.js
 // @updateURL    https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.meta.js
 // ==/UserScript==
-/*jshint esversion: 6 */
+/*jshint esversion: 11 */
+/* global GM_addElement, GM_xmlhttpRequest, GM_setValue, GM_getValue, GM_registerMenuCommand */
 (function () {
 	'use strict';
-	let nadeshikoApiKey = GM_getValue("nadeshiko-api-key", "")
-	let jpdbApiKey = GM_getValue("jpdb-api-key", "")
+	let nadeshikoApiKey = GM_getValue("nadeshiko-api-key", "");
+	let jpdbApiKey = GM_getValue("jpdb-api-key", "");
 	// Register menu commands
 	GM_registerMenuCommand("Set Nadeshiko API Key", async () => {
 		nadeshikoApiKey = fetchNadeshikoApiKey();
 	});
 	GM_registerMenuCommand("Set JPDB API Key", async () => {
 		jpdbApiKey = fetchJPDBApiKey();
-	})
+	});
 
 	function fetchNadeshikoApiKey() {
 		let apiKey = prompt("A Nadeshiko API key is required for this extension to work.\n\nYou can get one for free here after creating an account: https://nadeshiko.co/settings/developer");
@@ -127,24 +128,24 @@
 	// do not change either of the above without adding code to handle the change
 	
 	const setItem = (key, value) => {
-		localStorage.setItem(scriptPrefix + key, value)
-	}
+		localStorage.setItem(scriptPrefix + key, value);
+	};
 	const getItem = (key) => {
 		const prefixedValue = localStorage.getItem(scriptPrefix + key);
 		if (prefixedValue !== null) {
-			return prefixedValue
+			return prefixedValue;
 		}
 		const nonPrefixedValue = localStorage.getItem(key);
 		// to move away from non-prefixed values as fast as possible
 		if (nonPrefixedValue !== null) {
-			setItem(key, nonPrefixedValue)
+			setItem(key, nonPrefixedValue);
 		}
-		return nonPrefixedValue
-	}
+		return nonPrefixedValue;
+	};
 	const removeItem = (key) => {
 		localStorage.removeItem(scriptPrefix + key);
-		localStorage.removeItem(key)
-	}
+		localStorage.removeItem(key);
+	};
 	
 	// Helper for transitioning to fully script-prefixed config state
 	// Deletes all localStorage variables starting with configPrefix and re-adds them with scriptPrefix and configPrefix
@@ -276,7 +277,7 @@
 					// Transform the JSON object to slim it down
 					let slimData = {};
 					if (data) {
-						slimData = data
+						slimData = data;
 					} else {
 						console.error('Data does not contain expected structure. Cannot slim down.');
 						resolve();
@@ -372,7 +373,9 @@
 						if (!nadeshikoApiKey) {
 							// Ask for API Key on search if not set to prevent 401 errors
 							nadeshikoApiKey = fetchNadeshikoApiKey();
-							if (!nadeshikoApiKey) return;
+							if (!nadeshikoApiKey) {
+								return;
+							}
 						}
 						
 						GM_xmlhttpRequest({
@@ -453,7 +456,7 @@
 		}
 		
 		// Check if all category counts are zero
-		const allZero = categoryCount == 0
+		const allZero = categoryCount === 0;
 		if (allZero) {
 			return 'Blank API';
 		}
@@ -566,8 +569,12 @@
 			
 			// Match the href to extract kanji or vocabulary (ignoring ID if present)
 			const match = href.match(/\/(kanji|vocabulary)\/(?:\d+\/)?([^\#]*)#/);
-			if (match) return match[2].trim();
-			if (text) return text.trim();
+			if (match) {
+				return match[2].trim();
+			}
+			if (text) {
+				return text.trim();
+			}
 		}
 		return '';
 	}
@@ -613,7 +620,7 @@
 			const rubyElements = plainElement.querySelectorAll('ruby');
 			
 			// Extract the text from <rt> children and join them.
-			let vocabulary = ""
+			let vocabulary = "";
 			
 			
 			const reading = Array.from(rubyElements)
@@ -963,7 +970,8 @@
 				url: soundUrl,
 				responseType: 'arraybuffer',
 				onload: function (response) {
-					const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+					const AudioContext = window.AudioContext || window.webkitAudioContext;
+					const audioContext = new AudioContext();
 					audioContext.decodeAudioData(response.response, function (buffer) {
 						const source = audioContext.createBufferSource();
 						source.buffer = buffer;
@@ -1055,7 +1063,9 @@
 		
 		// Remove any existing container
 		removeExistingContainer();
-		if (!shouldRenderContainer()) return;
+		if (!shouldRenderContainer()) {
+			return;
+		}
 		
 		// Create and append the main wrapper and text button container
 		const wrapperDiv = createWrapperDiv();
@@ -1112,7 +1122,9 @@
 			const rightHotkey = CONFIG.HOTKEYS[1];
 			
 			hotkeysListener = (event) => {
-				if (event.repeat) return;
+				if (event.repeat) {
+					return;
+				}
 				switch (event.key.toLowerCase()) {
 					case leftHotkey.toLowerCase():
 						if (leftArrow.disabled) {
@@ -1134,7 +1146,7 @@
 						// listener gets removed, so need to re-add
 						window.addEventListener('keydown', hotkeysListener, {once: true});
 				}
-			}
+			};
 			
 			window.addEventListener('keydown', hotkeysListener, {once: true});
 		}
@@ -1191,7 +1203,9 @@
 	
 	function highlightVocab(sentence, vocab) {
 		// Highlight vocabulary in the sentence based on configuration
-		if (!CONFIG.COLORED_SENTENCE_TEXT) return sentence;
+		if (!CONFIG.COLORED_SENTENCE_TEXT) {
+			return sentence;
+		}
 		
 		if (state.exactSearch) {
 			const regex = new RegExp(`(${vocab})`, 'g');
@@ -1392,7 +1406,9 @@
 		// Embed the image and play audio, removing existing navigation div if present
 		console.log("Embedding image and playing audio");
 		const existingNavigationDiv = document.getElementById('nadeshiko-embed');
-		if (existingNavigationDiv) existingNavigationDiv.remove();
+		if (existingNavigationDiv) {
+			existingNavigationDiv.remove();
+		}
 		
 		const reviewUrlPattern = /https:\/\/jpdb\.io\/review(#a)?$/;
 		
@@ -1478,7 +1494,9 @@
 	
 	function importFavorites(event) {
 		const file = event.target.files[0];
-		if (!file) return;
+		if (!file) {
+			return;
+		}
 		
 		const reader = new FileReader();
 		reader.onload = function (e) {
@@ -1515,7 +1533,9 @@
 	
 	async function importData(event) {
 		const file = event.target.files[0];
-		if (!file) return;
+		if (!file) {
+			return;
+		}
 		
 		const reader = new FileReader();
 		reader.onload = async function (e) {
@@ -1684,10 +1704,12 @@
 	////SAVE BUTTON
 	function saveConfig() {
 		const overlay = document.getElementById('overlayMenu');
-		if (!overlay) return;
+		if (!overlay) {
+			return;
+		}
 		
 		const inputs = overlay.querySelectorAll('input, span');
-		console.log(inputs)
+		console.log(inputs);
 		const {changes, minimumExampleLengthChanged, newMinimumExampleLength} = gatherChanges(inputs);
 		if (minimumExampleLengthChanged) {
 			handleMinimumExampleLengthChange(newMinimumExampleLength, changes);
@@ -2096,7 +2118,7 @@
 				
 				rightContainer.appendChild(numberContainer);
 			} else if (typeof value === 'object') {
-				const maxAllowedIndex = hotkeyOptions.length - 1
+				const maxAllowedIndex = hotkeyOptions.length - 1;
 				
 				let currentValue = value;
 				let choiceIndex = hotkeyOptions.indexOf(currentValue.join(' '));
@@ -2187,39 +2209,39 @@
 	function loadConfig() {
 		for (const key in localStorage) {
 			if (!key.startsWith(scriptPrefix + configPrefix) || !localStorage.hasOwnProperty(key)) {
-				continue
+				continue;
 			}
 			
 			
 			const configKey = key.substring((scriptPrefix + configPrefix).length); // chop off script prefix and config prefix
 			if (!CONFIG.hasOwnProperty(configKey)) {
-				continue
+				continue;
 			}
 			
 			
 			const savedValue = localStorage.getItem(key);
 			if (savedValue === null) {
-				continue
+				continue;
 			}
 			
 			
 			const valueType = typeof CONFIG[configKey];
 			if (configKey === 'RANDOM_SENTENCE') {
 				if (savedValue == 0) {
-					CONFIG[configKey] = RANDOM_SENTENCE_ENUM.DISABLE
+					CONFIG[configKey] = RANDOM_SENTENCE_ENUM.DISABLE;
 				}
 				if (savedValue == 1) {
-					CONFIG[configKey] = RANDOM_SENTENCE_ENUM.ON_FIRST
+					CONFIG[configKey] = RANDOM_SENTENCE_ENUM.ON_FIRST;
 				}
 				if (savedValue == 2) {
-					CONFIG[configKey] = RANDOM_SENTENCE_ENUM.EVERY_TIME
+					CONFIG[configKey] = RANDOM_SENTENCE_ENUM.EVERY_TIME;
 				}
 			} else if (configKey === 'HOTKEYS') {
-				CONFIG[configKey] = savedValue.split(' ')
+				CONFIG[configKey] = savedValue.split(' ');
 			} else if (valueType === 'boolean') {
 				CONFIG[configKey] = savedValue === 'true';
 				if (configKey === 'DEFAULT_TO_EXACT_SEARCH') {
-					state.exactSearch = CONFIG.DEFAULT_TO_EXACT_SEARCH
+					state.exactSearch = CONFIG.DEFAULT_TO_EXACT_SEARCH;
 				}
 				// I wonder if this is the best way to do this...
 				// Probably not because we could just have a single variable to store both, but it would have to be in config and
@@ -2260,7 +2282,7 @@
 								result.push({word, reading});
 							}
 							return result;
-						}
+						};
 						
 						const jsonResult = parseRubyToJSON(result);
 						// remove kana from the spelling
@@ -2326,7 +2348,9 @@
 				let totalWeight = 0;
 				
 				for (let i = 0; i < max; i++) {
-					if (!sentences[i]) await preprocessSentence(sentences[i]);
+					if (!sentences[i]) {
+						await preprocessSentence(sentences[i]);
+					}
 					const weight = (sentences[i].weight || 1);
 					weights[i] = weight;
 					totalWeight += weight;
@@ -2376,7 +2400,9 @@
 		}
 		const machineTranslationFrame = document.getElementById('machine-translation-frame');
 		// Skip if machine translation frame is present
-		if (machineTranslationFrame) return;
+		if (machineTranslationFrame) {
+			return;
+		}
 		
 		// Determine the vocabulary based on URL — done in parallel with setting page width
 		const url = window.location.href;
@@ -2393,7 +2419,9 @@
 		}
 		
 		// Early return if no vocabulary is found
-		if (!state.vocab) return;
+		if (!state.vocab) {
+			return;
+		}
 		
 		// Retrieve stored data for the current vocabulary
 		const {sentence, exactState} = getStoredData(state.vocab);
