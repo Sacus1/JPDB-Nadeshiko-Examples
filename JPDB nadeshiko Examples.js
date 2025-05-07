@@ -32,18 +32,18 @@
 	GM_registerMenuCommand("Set JPDB API Key", async () => {
 		jpdbApiKey = fetchJPDBApiKey();
 	})
-	
+
 	function fetchNadeshikoApiKey() {
 		let apiKey = prompt("A Nadeshiko API key is required for this extension to work.\n\nYou can get one for free here after creating an account: https://nadeshiko.co/settings/developer");
 		GM_setValue("nadeshiko-api-key", apiKey);
-		
+
 		if (apiKey) {
 			alert("API Key saved successfully!");
 		}
-		
+
 		return apiKey;
 	}
-	
+
 	function fetchJPDBApiKey() {
 		let apiKey = prompt("A JPDB API key is required for this extension to work.\n\nYou can get it in the settings page of your JPDB account.");
 		GM_setValue("jpdb-api-key", apiKey);
@@ -2245,46 +2245,45 @@
 				onload: function (response) {
 					// Ensure a 200 OK response
 					if (response.status === 200) {
-						const result = JSON.parse(response.responseText)["furigana"];
-						let foundMatch = false;
-						
-						function parseRubyToJSON(text) {
-							const parser = new DOMParser();
-							const doc = parser.parseFromString(text, "text/html");
-							const rubyElements = doc.querySelectorAll("ruby");
-							
-							let result = Array.from(rubyElements).map(ruby => {
-								const word = ruby.childNodes[0].textContent; // The kanji part
-								const reading = ruby.querySelector("rt").textContent; // The ruby (furigana)
-								return {word, reading};
-							});
-							
-							// Check for words without ruby
-							const nonRubyElements = Array.from(doc.body.childNodes).filter(
-								node => node.nodeType === Node.TEXT_NODE && node.textContent.trim()
-							);
-							
-							nonRubyElements.forEach(nonRuby => {
-								result.push({word: nonRuby.textContent.trim(), reading: null});
-							});
-							
+						const result = JSON.parse(response.responseText).furigana;
+						let foundMatchVocab = false;
+						const parseRubyToJSON = function (text) {
+							let result = [];
+							// go through all the ruby tags
+							// remove <rp> tags
+							text = text.replace(/<rp>.*?<\/rp>/g, '');
+							const regex = /<ruby>(.*?)<rt>(.*?)<\/rt><\/ruby>/g;
+							let match;
+							while ((match = regex.exec(text)) !== null) {
+								const word = match[1];
+								const reading = match[2];
+								result.push({word, reading});
+							}
 							return result;
 						}
 						
 						const jsonResult = parseRubyToJSON(result);
-						
+						// remove kana from the spelling
+						const kanaRegex = /[\u3040-\u309F\u30A0-\u30FF]/g;
+						let vocab = state.vocab;
+						vocab = vocab.replace(kanaRegex, '');
 						jsonResult.forEach(function (token) {
 							// Destructure the token array
 							const [spelling, reading] = [token.word, token.reading];
 							// Check if the token's spelling matches our desired vocab
-							// and its reading matches the expected reading (from state)
-							if (spelling === state.vocab && reading === state.reading) {
-								foundMatch = true;
-							} else if (spelling === state.vocab) {
-								console.log(`Reading mismatch: ${spelling} - Expected: ${state.reading}, Found: ${reading}`);
+							if (spelling.includes(vocab) || vocab.includes(spelling)) {
+								foundMatchVocab = true;
+								// If reading doesn't match, log it but still consider it a match
+								if (reading.includes(state.reading) || state.reading.includes(reading)) {
+									resolve(true);
+								}
 							}
 						});
-						resolve(foundMatch);
+						if (!foundMatchVocab) {
+							console.error("Vocab not found in sentence: ", sentence, "expected:", vocab, "found:", jsonResult.map(token => token.word).join(', '));
+							reject(new Error("Vocab not found in sentence"));
+						}
+						resolve(false);
 					} else {
 						console.error("API call failed with status", response.status);
 						reject(new Error("API call failed"));
