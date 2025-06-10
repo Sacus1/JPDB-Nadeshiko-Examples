@@ -9,8 +9,6 @@
 // @match        https://jpdb.io/kanji/*
 // @match        https://jpdb.io/search*
 // @connect      api.brigadasos.xyz
-// @connect      linodeobjects.com
-// @connect      kanjikana.com
 // @grant        GM_addElement
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
@@ -33,18 +31,18 @@
 	GM_registerMenuCommand("Set JPDB API Key", async () => {
 		jpdbApiKey = fetchJPDBApiKey();
 	});
-
+	
 	function fetchNadeshikoApiKey() {
 		let apiKey = prompt("A Nadeshiko API key is required for this extension to work.\n\nYou can get one for free here after creating an account: https://nadeshiko.co/settings/developer");
 		GM_setValue("nadeshiko-api-key", apiKey);
-
+		
 		if (apiKey) {
 			alert("API Key saved successfully!");
 		}
-
+		
 		return apiKey;
 	}
-
+	
 	function fetchJPDBApiKey() {
 		let apiKey = prompt("A JPDB API key is required for this extension to work.\n\nYou can get it in the settings page of your JPDB account.");
 		GM_setValue("jpdb-api-key", apiKey);
@@ -403,7 +401,7 @@
 												})
 											);
 											state.examples = sentenceResults.filter(s => s);
-
+											
 										}
 										await IndexedDBManager.save(db, searchVocab, jsonData);
 										resolve();
@@ -465,70 +463,64 @@
 	}
 	
 	async function preprocessSentence(sentence) {
-		const foundMatch = await checkVocabInSentence(state, sentence);
 		const content = sentence.segment_info.content_jp;
-		
-		if (!foundMatch) {
-			console.log("No match found in sentence:", sentence, "content:", content);
-			sentence.nulled = true;
-		}
-		// check if the sentence is too long or too short
-		if (content.length < CONFIG.MINIMUM_EXAMPLE_LENGTH || content.length > CONFIG.MAXIMUM_EXAMPLE_LENGTH) {
-			console.log("Removed sentence:", sentence);
-			return null;
-		}
 		// Set weights for each sentence by calling jpdb api (if needed)
 		if (CONFIG.WEIGHTED_SENTENCES && jpdbApiKey) {
 			const data = {
 				text: content,
 				token_fields: [],
 				position_length_encoding: "utf16",
-				vocabulary_fields: ["card_state", "spelling"]
+				vocabulary_fields: ["card_state", "spelling", "reading"]
 			};
-			if (sentence.nulled) {
-				sentence.weight = 1e-6;
-				console.log("Ignoring ", sentence, " due to null");
-			} else {
-				await new Promise((resolve) => {
-					GM_xmlhttpRequest({
-						method: "POST",
-						url: "https://jpdb.io/api/v1/parse",
-						headers: {Authorization: `Bearer ${jpdbApiKey}`},
-						data: JSON.stringify(data),
-						onload: function (response) {
-							let weight = 1;
-							if (response.status === 200) {
-								try {
-									const vocab = JSON.parse(response.responseText).vocabulary || [];
-									if (vocab.length > 0) {
-										const VALID_CARD_STATES = ["known", "never-forget", "learning", "due"];
-										let matchCount = 0;
-										for (const item of vocab) {
-											if (item && item[0] && VALID_CARD_STATES.includes(item[0][0])) {
-												matchCount++;
-											}
+			let vocabInSentence = false;
+			await new Promise((resolve) => {
+				GM_xmlhttpRequest({
+					method: "POST",
+					url: "https://jpdb.io/api/v1/parse",
+					headers: {Authorization: `Bearer ${jpdbApiKey}`},
+					data: JSON.stringify(data),
+					onload: function (response) {
+						let weight = 1;
+						if (response.status === 200) {
+							try {
+								const vocab = JSON.parse(response.responseText).vocabulary || [];
+								if (vocab.length > 0) {
+									const VALID_CARD_STATES = ["known", "never-forget", "learning", "due", "failed"];
+									let matchCount = 0;
+									for (const item of vocab) {
+										// check if state.vocab is a substring of item[1]
+										if (item && item[1] && item[2] && item[1].includes(state.vocab) && item[2].includes(state.reading)) {
+											vocabInSentence = true;
 										}
-										weight = (matchCount * 100 / (vocab.length));
+										if (item && item[0] && VALID_CARD_STATES.includes(item[0][0])) {
+											matchCount++;
+										}
 									}
-								} catch {
-									console.error("Error parsing parse response");
+									weight = (matchCount * 100 / (vocab.length));
 								}
+							} catch {
+								console.error("Error parsing parse response");
 							}
-							sentence.weight = weight;
-							resolve();
-						},
-						onerror: function () {
-							sentence.weight = 1;
-							resolve();
 						}
-					});
+						sentence.weight = weight;
+						resolve();
+					},
+					onerror: function () {
+						sentence.weight = 1;
+						resolve();
+					}
 				});
+			});
+			// if vocabInSentence is false, remove sentence from the examples
+			if (!vocabInSentence) {
+				console.log(`Skipping sentence "${content}" because it does not contain the vocab "${state.vocab}" or reading "${state.reading}".`);
+				return null;
 			}
 		}
 		
 		return sentence;
 	}
-
+	
 	//FAVORITE DATA FUNCTIONS=====================================================================================================================
 	function getStoredData(key) {
 		// Retrieve the stored value from localStorage using the provided key
@@ -618,7 +610,12 @@
 				return '';
 			}
 			const rubyElements = plainElement.querySelectorAll('ruby');
-			
+			// if not ruby elements, return the text content of the plain element twice (katakana word)
+			if (rubyElements.length === 0) {
+				const vocabText = plainElement.textContent.trim();
+				console.log("Found Vocabulary:", vocabText);
+				return [vocabText, vocabText];
+			}
 			// Extract the text from <rt> children and join them.
 			let vocabulary = "";
 			
@@ -628,14 +625,15 @@
 					const rtElement = ruby.querySelector('rt');
 					// add the text not in the <rt> tag to the vocabulary
 					vocabulary = vocabulary + (ruby.childNodes[0] ? ruby.childNodes[0].textContent.trim() : '');
+					
 					if (rtElement) {
 						rtElement.style.display = 'none';
 						return rtElement.textContent.trim();
+					} else {
+						return ruby.textContent.trim();
 					}
-					return '';
 				})
 				.join('');
-			
 			
 			// Regular expression to check if the vocabulary contains kanji characters
 			const kanjiRegex = /[\u4e00-\u9faf\u3400-\u4dbf]/;
@@ -2256,71 +2254,6 @@
 		}
 	}
 	
-	function checkVocabInSentence(state, sentence) {
-		// Create the payload using the sentence content and required fields
-		const payload = {
-			input: sentence.segment_info.content_jp,
-		};
-		return new Promise((resolve, reject) => {
-			GM_xmlhttpRequest({
-				method: "POST",
-				url: "https://kanjikana.com/api/furigana",
-				data: JSON.stringify(payload),
-				onload: function (response) {
-					// Ensure a 200 OK response
-					if (response.status === 200) {
-						const result = JSON.parse(response.responseText).furigana;
-						let foundMatchVocab = false;
-						const parseRubyToJSON = function (text) {
-							let result = [];
-							// go through all the ruby tags
-							// remove <rp> tags
-							text = text.replace(/<rp>.*?<\/rp>/g, '');
-							const regex = /<ruby>(.*?)<rt>(.*?)<\/rt><\/ruby>/g;
-							let match;
-							while ((match = regex.exec(text)) !== null) {
-								const word = match[1];
-								const reading = match[2];
-								result.push({word, reading});
-							}
-							return result;
-						};
-						
-						const jsonResult = parseRubyToJSON(result);
-						// remove kana from the spelling
-						const kanaRegex = /[\u3040-\u309F\u30A0-\u30FF]/g;
-						let vocab = state.vocab;
-						vocab = vocab.replace(kanaRegex, '');
-						jsonResult.forEach(function (token) {
-							// Destructure the token array
-							const [spelling, reading] = [token.word, token.reading];
-							// Check if the token's spelling matches our desired vocab
-							if (spelling.includes(vocab) || vocab.includes(spelling)) {
-								foundMatchVocab = true;
-								// If reading doesn't match, log it but still consider it a match
-								if (reading.includes(state.reading) || state.reading.includes(reading)) {
-									resolve(true);
-								}
-							}
-						});
-						if (!foundMatchVocab) {
-							console.error("Vocab not found in sentence: ", sentence, "expected:", vocab, "found:", jsonResult.map(token => token.word).join(', '));
-							reject(new Error("Vocab not found in sentence"));
-						}
-						resolve(false);
-					} else {
-						console.error("API call failed with status", response.status);
-						reject(new Error("API call failed"));
-					}
-				},
-				onerror: function (error) {
-					console.error("Error during the API call:", error);
-					reject(error);
-				}
-			});
-		})
-	}
-	
 	
 	async function process_sentences(state, sentences, first_call) {
 		// Early return for empty array or single item (no processing needed)
@@ -2410,7 +2343,7 @@
 		const url = window.location.href;
 		if (url.includes('/vocabulary/')) {
 			[state.vocab, state.reading] = parseVocabFromVocabulary();
-		} else if (url.includes('/search?q=')) {
+		} else if (url.includes('/search?q=')) { // TODO : get reading from search
 			state.vocab = parseVocabFromSearch();
 		} else if (url.includes('c=')) {
 			state.vocab = parseVocabFromAnswer();
