@@ -527,10 +527,10 @@
                 vocabulary_fields: ["card_state", "spelling", "reading"]
             };
             let vocabInSentence = false;
-            await processJPDBData(sentence,jipidata);
-            async function processJPDBData(sentence,jipidata) {
+            await processJPDBData(sentence, jipidata);
+
+            async function processJPDBData(sentence, jipidata) {
                 return await new Promise((resolve) => {
-                    console.log("Wait for jpdb")
                     GM_xmlhttpRequest({
                         method: "POST",
                         url: "https://jpdb.io/api/v1/parse",
@@ -2406,6 +2406,23 @@
             state.vocab = parseVocabFromAnswer();
         } else if (url.includes('/kanji/')) {
             state.vocab = parseVocabFromKanji();
+        } else if (url.includes('/deck/')) {
+            const vocabElements = document.querySelectorAll('.vocabulary-spelling');
+            if (vocabElements.length > 0) {
+                const preprocessBtn = document.createElement('button');
+                preprocessBtn.textContent = 'Preprocess All Words';
+                preprocessBtn.style.margin = '10px';
+                preprocessBtn.addEventListener('click', async () => {
+                    for (const vocabElement of vocabElements) {
+                        const vocab = vocabElement.getAttribute('href').split('/').pop().split('#')[0];
+                        if (vocab) {
+                            await getNadeshikoData(vocab, state.exactSearch);
+                        }
+                    }
+                    alert('Preprocessing complete!');
+                });
+                document.querySelector('.content')?.prepend(preprocessBtn);
+            }
         } else {
             [state.vocab, state.reading] = parseVocabFromReview();
         }
