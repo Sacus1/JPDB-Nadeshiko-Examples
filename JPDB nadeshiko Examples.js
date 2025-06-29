@@ -428,8 +428,8 @@
                                         state.apiDataFetched = true;
                                         // check if the sentence is in the vocab
                                         if (state.vocab && state.reading) {
+                                            validateAndUpdateExamples()
                                             const sentenceResults = await Promise.all(
-                                                await validateAndUpdateExamples();
                                             state.examples.map(async sentence => {
                                                 return await preprocessSentence(sentence);
                                             }))
@@ -462,7 +462,7 @@
                 }
             }
 
-            fetchData();
+            await fetchData();
         });
     }
 
@@ -505,6 +505,7 @@
                 },
                 onload: function (response) {
                     if (response.status === 200) {
+                        console.log(response.responseText)
                         resolve(response.responseText);
                     } else {
                         console.error("Error checking if names :", response.responseText);
@@ -517,7 +518,6 @@
 
     async function preprocessSentence(sentence) {
         const content = sentence.segment_info.content_jp;
-
         // Set weights for each sentence by calling jpdb api (if needed)
         if (CONFIG.WEIGHTED_SENTENCES && jpdbApiKey) {
             const jipidata = {
@@ -527,10 +527,10 @@
                 vocabulary_fields: ["card_state", "spelling", "reading"]
             };
             let vocabInSentence = false;
-            await processJPDBData(sentence, data, jipidata);
-
-            async function processJPDBData(sentence, data, jipidata) {
+            await processJPDBData(sentence,jipidata);
+            async function processJPDBData(sentence,jipidata) {
                 return await new Promise((resolve) => {
+                    console.log("Wait for jpdb")
                     GM_xmlhttpRequest({
                         method: "POST",
                         url: "https://jpdb.io/api/v1/parse",
