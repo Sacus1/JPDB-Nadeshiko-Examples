@@ -8,6 +8,7 @@
 // @match        https://jpdb.io/vocabulary/*
 // @match        https://jpdb.io/kanji/*
 // @match        https://jpdb.io/search*
+// @match        https://jpdb.io/deck*
 // @connect      api.brigadasos.xyz
 // @connect 	sargus.fr
 // @grant        GM_addElement
@@ -427,14 +428,12 @@
                                         state.examples = jsonData;
                                         state.apiDataFetched = true;
                                         // check if the sentence is in the vocab
-                                        if (state.vocab && state.reading) {
-                                            validateAndUpdateExamples()
-                                            const sentenceResults = await Promise.all(
+                                        validateAndUpdateExamples()
+                                        const sentenceResults = await Promise.all(
                                             state.examples.map(async sentence => {
                                                 return await preprocessSentence(sentence);
                                             }))
-                                            state.examples = sentenceResults.filter(s => s);
-                                        }
+                                        state.examples = sentenceResults.filter(s => s);
                                         await IndexedDBManager.save(db, searchVocab, jsonData);
                                         resolve();
                                     } else {
@@ -545,7 +544,10 @@
                                         const VALID_CARD_STATES = ["known", "never-forget", "learning"];
                                         let matchCount = 0;
                                         for (const item of vocab) {
-                                            if (item && item[1] && item[2] && item[1].includes(state.vocab) && item[2].includes(state.reading)) {
+                                            if (!state.reading){
+                                                vocabInSentence = true;
+                                            }
+                                            else if (item && item[1] && item[2] && item[1].includes(state.vocab) && item[2].includes(state.reading)) {
                                                 vocabInSentence = true;
                                             }
                                             if (item && item[0] && VALID_CARD_STATES.includes(item[0][0])) {
@@ -2398,6 +2400,7 @@
 
         // Determine the vocabulary based on URL — done in parallel with setting page width
         const url = window.location.href;
+        console.log(url)
         if (url.includes('/vocabulary/')) {
             [state.vocab, state.reading] = parseVocabFromVocabulary();
         } else if (url.includes('/search?q=')) { // TODO : get reading from search
@@ -2406,7 +2409,7 @@
             state.vocab = parseVocabFromAnswer();
         } else if (url.includes('/kanji/')) {
             state.vocab = parseVocabFromKanji();
-        } else if (url.includes('/deck/')) {
+        } else if (url.includes('/deck')) {
             const vocabElements = document.querySelectorAll('.vocabulary-spelling');
             if (vocabElements.length > 0) {
                 const preprocessBtn = document.createElement('button');
@@ -2414,14 +2417,28 @@
                 preprocessBtn.style.margin = '10px';
                 preprocessBtn.addEventListener('click', async () => {
                     for (const vocabElement of vocabElements) {
-                        const vocab = vocabElement.getAttribute('href').split('/').pop().split('#')[0];
+                        const aTag = vocabElement.querySelector('a');
+                        const href = aTag.getAttribute('href');
+
+                        // Split the path into segments
+                        const segments = href.split('/');
+
+                        // The word is in the 4th segment (index 3)
+                        const lastSegment = segments[3] || '';
+
+                        // Remove the fragment part after #
+                        const vocab = decodeURIComponent(lastSegment.split('#')[0]);
+                        console.log(vocab)
                         if (vocab) {
                             await getNadeshikoData(vocab, state.exactSearch);
                         }
                     }
                     alert('Preprocessing complete!');
                 });
-                document.querySelector('.content')?.prepend(preprocessBtn);
+                const entriesAmountTextElem = [...document.querySelectorAll('p')].find(
+                    (elem) => elem.innerText.startsWith('Showing') && elem.innerText.endsWith('entries')
+                );
+                entriesAmountTextElem.parentNode.insertBefore(preprocessBtn, entriesAmountTextElem);
             }
         } else {
             [state.vocab, state.reading] = parseVocabFromReview();
