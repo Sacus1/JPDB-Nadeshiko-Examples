@@ -16,8 +16,8 @@
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
 // @license      MIT
-// @downloadURL  https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.user.js
-// @updateURL    https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.meta.js
+// @downloadURL https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.user.js
+// @updateURL https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.meta.js
 // ==/UserScript==
 /*jshint esversion: 11 */
 /* global GM_addElement, GM_xmlhttpRequest, GM_setValue, GM_getValue, GM_registerMenuCommand */
@@ -392,6 +392,33 @@
                                     "Content-Type": "application/json"
                                 },
                             onload: async function (response) {
+                                async function validateAndUpdateExamples() {
+                                    try {
+                                        const sargusData = {
+                                            word: state?.vocab ?? '',                                // fall back to empty string
+                                            sentences: (state?.examples ?? [])                        // guarantee an array
+                                                .map(e => e?.segment_info?.content_jp)                  // optional-chain every step
+                                                .filter(Boolean)                                        // keep only truthy strings
+                                        };
+
+                                        const names = await checkIfNames(sargusData);               // may throw/reject
+
+                                        if (!Array.isArray(names)) {
+                                            throw new TypeError('checkIfNames did not return an array.');
+                                        }
+                                        if (names.length !== state.examples.length) {
+                                            throw new RangeError(
+                                                `Mismatch: received ${names.length} flags for ${state.examples.length} examples.`
+                                            );
+                                        }
+
+                                        state.examples = state.examples.filter((_, i) => !names[i]);
+                                    } catch (err) {
+                                        console.error('Failed to filter examples:', err);
+                                        // Decide how to handle the error: show a message, re-throw, etc.
+                                    }
+                                }
+
                                 if (response.status === 200) {
                                     const jsonData = parseJSON(response.response).sentences;
                                     console.log("API JSON Received");
@@ -402,12 +429,11 @@
                                         // check if the sentence is in the vocab
                                         if (state.vocab && state.reading) {
                                             const sentenceResults = await Promise.all(
-                                                state.examples.map(async sentence => {
-                                                    return await preprocessSentence(sentence);
-                                                })
-                                            );
+                                                await validateAndUpdateExamples();
+                                            state.examples.map(async sentence => {
+                                                return await preprocessSentence(sentence);
+                                            }))
                                             state.examples = sentenceResults.filter(s => s);
-
                                         }
                                         await IndexedDBManager.save(db, searchVocab, jsonData);
                                         resolve();
@@ -468,8 +494,30 @@
         return null; // No error
     }
 
+    async function checkIfNames(sargusData) {
+        return await new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: "POST",
+                url: "http://sargus.fr:8000/api/check_names",
+                data: JSON.stringify(sargusData),
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                onload: function (response) {
+                    if (response.status === 200) {
+                        resolve(response.responseText);
+                    } else {
+                        console.error("Error checking if names :", response.responseText);
+                        reject(null);
+                    }
+                }
+            });
+        });
+    }
+
     async function preprocessSentence(sentence) {
         const content = sentence.segment_info.content_jp;
+
         // Set weights for each sentence by calling jpdb api (if needed)
         if (CONFIG.WEIGHTED_SENTENCES && jpdbApiKey) {
             const jipidata = {
@@ -478,35 +526,8 @@
                 position_length_encoding: "utf16",
                 vocabulary_fields: ["card_state", "spelling", "reading"]
             };
-            const sargusData =
-                {
-                    sentence: content,
-                    word: state.vocab
-                }
             let vocabInSentence = false;
-            const isName = await checkIfName(sargusData);
-            if (!isName) {
-                await processJPDBData(sentence, data, jipidata);
-            } else {
-                return null;
-            }
-
-            async function checkIfName(sargusData) {
-                return await new Promise((resolve) => {
-                    GM_xmlhttpRequest({
-                        method: "POST",
-                        url: "http://sargus.fr:8000/api/check_name",
-                        data: JSON.stringify(sargusData),
-                        onload: function (response) {
-                            if (response.status === 200) {
-                                resolve(response.responseText);
-                            } else {
-                                resolve(false);
-                            }
-                        }
-                    });
-                });
-            }
+            await processJPDBData(sentence, data, jipidata);
 
             async function processJPDBData(sentence, data, jipidata) {
                 return await new Promise((resolve) => {
@@ -521,7 +542,7 @@
                                 try {
                                     const vocab = JSON.parse(response.responseText).vocabulary || [];
                                     if (vocab.length > 0) {
-                                        const VALID_CARD_STATES = ["known", "never-forget", "learning", "due", "failed"];
+                                        const VALID_CARD_STATES = ["known", "never-forget", "learning"];
                                         let matchCount = 0;
                                         for (const item of vocab) {
                                             if (item && item[1] && item[2] && item[1].includes(state.vocab) && item[2].includes(state.reading)) {
@@ -547,6 +568,7 @@
                     });
                 });
             }
+
             // if vocabInSentence is false, remove sentence from the examples
             if (!vocabInSentence) {
                 console.log(`Skipping sentence "${content}" because it does not contain the vocab "${state.vocab}" or reading "${state.reading}".`);
@@ -2296,7 +2318,6 @@
         if (!sentences || !Array.isArray(sentences) || sentences.length <= 1) {
             return sentences;
         }
-
         // Only randomize if needed
         const shouldRandomize = CONFIG.RANDOM_SENTENCE >
             (first_call ? RANDOM_SENTENCE_ENUM.DISABLE : RANDOM_SENTENCE_ENUM.ON_FIRST);
@@ -2317,9 +2338,8 @@
                 // Pre-calculate weights array for performance
                 const weights = new Array(max);
                 let totalWeight = 0;
-
                 for (let i = 0; i < max; i++) {
-                    if (!sentences[i]) {
+                    if (!sentences[i] || !sentences[i].weight) {
                         await preprocessSentence(sentences[i]);
                     }
                     const weight = (sentences[i].weight || 1);
@@ -2344,6 +2364,7 @@
 
             // Fisher-Yates shuffle with weighted randomization
             for (let i = maxShuffleItems - 1; i > 0; i--) {
+                console.log(maxShuffleItems - i, "/", maxShuffleItems)
                 const j = CONFIG.WEIGHTED_SENTENCES ?
                     await getWeightedRandomIndex(i + 1) :
                     Math.floor(Math.random() * (i + 1));
