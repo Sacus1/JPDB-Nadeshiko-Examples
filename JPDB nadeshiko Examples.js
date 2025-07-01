@@ -106,6 +106,7 @@
         // have to click once to match up the icons and again to actually change the sentences
         RANDOM_SENTENCE: RANDOM_SENTENCE_ENUM,
         WEIGHTED_SENTENCES: false,
+        DEBUG: false, // Set to true to not use IndexedDB and always fetch from API
     };
 
     const state = {
@@ -273,7 +274,12 @@
                         resolve();
                         return;
                     }
-
+                    // check for DEBUG mode
+                    if (CONFIG.DEBUG) {
+                        console.log('DEBUG mode is enabled. Not using IndexedDB, always fetching from API.');
+                        resolve();
+                        return;
+                    }
                     // Transform the JSON object to slim it down
                     let slimData = {};
                     if (data) {
@@ -393,6 +399,7 @@
                                     "Content-Type": "application/json"
                                 },
                             onload: async function (response) {
+                                console.log(state)
                                 async function validateAndUpdateExamples() {
                                     try {
                                         const sargusData = {
@@ -504,7 +511,6 @@
                 },
                 onload: function (response) {
                     if (response.status === 200) {
-                        console.log(response.responseText)
                         try {
                             const names = JSON.parse(response.responseText);
                             if (Array.isArray(names)) {
@@ -621,25 +627,50 @@
 
     // PARSE VOCAB FUNCTIONS =====================================================================================================================
     function parseVocabFromAnswer() {
-        // Select all links containing "/kanji/" or "/vocabulary/" in the href attribute
+        // Select all links containing "/kanji/" or "/vocabulary/" in the href attribute 
         const elements = document.querySelectorAll('a[href*="/kanji/"], a[href*="/vocabulary/"]');
         console.log("Parsing Answer Page");
 
         // Iterate through the matched elements
         for (const element of elements) {
             const href = element.getAttribute('href');
-            const text = element.textContent.trim();
+            const rubyElements = element.querySelectorAll('ruby');
 
             // Match the href to extract kanji or vocabulary (ignoring ID if present)
             const match = href.match(/\/(kanji|vocabulary)\/(?:\d+\/)?([^\#]*)#/);
-            if (match) {
-                return match[2].trim();
+
+            // If ruby elements exist, extract vocab and reading
+            if (rubyElements.length > 0) {
+                let vocabulary = "";
+                const reading = Array.from(rubyElements)
+                    .map(ruby => {
+                        const rtElement = ruby.querySelector('rt');
+                        vocabulary = vocabulary + (ruby.childNodes[0] ? ruby.childNodes[0].textContent.trim() : '');
+
+                        if (rtElement) {
+                            return rtElement.textContent.trim();
+                        } else {
+                            return ruby.textContent.trim();
+                        }
+                    })
+                    .join('');
+
+                return [vocabulary, reading];
             }
+
+            // If match exists in href, return that as both vocab and reading
+            if (match) {
+                const vocab = match[2].trim();
+                return [vocab, vocab];
+            }
+
+            // Return text content as both vocab and reading if nothing else found
+            const text = element.textContent.trim();
             if (text) {
-                return text.trim();
+                return [text, text];
             }
         }
-        return '';
+        return ['', ''];
     }
 
     function parseVocabFromReview() {
@@ -2417,7 +2448,7 @@
         } else if (url.includes('/search?q=')) { // TODO : get reading from search
             state.vocab = parseVocabFromSearch();
         } else if (url.includes('c=')) {
-            state.vocab = parseVocabFromAnswer();
+            [state.vocab, state.reading] = parseVocabFromAnswer();
         } else if (url.includes('/kanji/')) {
             state.vocab = parseVocabFromKanji();
         } else if (url.includes('/deck')) {
