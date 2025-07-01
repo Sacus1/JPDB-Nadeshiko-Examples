@@ -396,14 +396,14 @@
                                 async function validateAndUpdateExamples() {
                                     try {
                                         const sargusData = {
-                                            word: state?.vocab ?? '',                                // fall back to empty string
+                                            word: state?.vocab ?? '',
+                                            reading: state?.reading ?? '',          // optional reading
                                             sentences: (state?.examples ?? [])                        // guarantee an array
                                                 .map(e => e?.segment_info?.content_jp)                  // optional-chain every step
                                                 .filter(Boolean)                                        // keep only truthy strings
                                         };
 
                                         const names = await checkIfNames(sargusData);               // may throw/reject
-
                                         if (!Array.isArray(names)) {
                                             throw new TypeError('checkIfNames did not return an array.');
                                         }
@@ -428,7 +428,7 @@
                                         state.examples = jsonData;
                                         state.apiDataFetched = true;
                                         // check if the sentence is in the vocab
-                                        validateAndUpdateExamples()
+                                        await validateAndUpdateExamples()
                                         const sentenceResults = await Promise.all(
                                             state.examples.map(async sentence => {
                                                 return await preprocessSentence(sentence);
@@ -505,7 +505,18 @@
                 onload: function (response) {
                     if (response.status === 200) {
                         console.log(response.responseText)
-                        resolve(response.responseText);
+                        try {
+                            const names = JSON.parse(response.responseText);
+                            if (Array.isArray(names)) {
+                                resolve(names);
+                            } else {
+                                console.error("Invalid response format, expected an array:", names);
+                                reject(null);
+                            }
+                        } catch (e) {
+                            console.error("Error parsing response as JSON:", e);
+                            reject(null);
+                        }
                     } else {
                         console.error("Error checking if names :", response.responseText);
                         reject(null);
