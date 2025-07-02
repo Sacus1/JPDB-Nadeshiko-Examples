@@ -400,12 +400,12 @@
                                 },
                             onload: async function (response) {
                                 console.log(state)
-                                async function validateAndUpdateExamples() {
+                                async function validateAndUpdateExamples(jsonState) {
                                     try {
                                         const sargusData = {
                                             word: state?.vocab ?? '',
                                             reading: state?.reading ?? '',          // optional reading
-                                            sentences: (state?.examples ?? [])                        // guarantee an array
+                                            sentences: (jsonState ?? [])                        // guarantee an array
                                                 .map(e => e?.segment_info?.content_jp)                  // optional-chain every step
                                                 .filter(Boolean)                                        // keep only truthy strings
                                         };
@@ -414,13 +414,14 @@
                                         if (!Array.isArray(names)) {
                                             throw new TypeError('checkIfNames did not return an array.');
                                         }
-                                        if (names.length !== state.examples.length) {
+                                        if (names.length !== jsonState.length) {
                                             throw new RangeError(
-                                                `Mismatch: received ${names.length} flags for ${state.examples.length} examples.`
+                                                `Mismatch: received ${names.length} flags for ${jsonState.length} examples.`
                                             );
                                         }
 
-                                        state.examples = state.examples.filter((_, i) => !names[i]);
+                                        jsonState = jsonState.filter((_, i) => !names[i]);
+                                        return jsonState; // return filtered examples
                                     } catch (err) {
                                         console.error('Failed to filter examples:', err);
                                         // Decide how to handle the error: show a message, re-throw, etc.
@@ -428,19 +429,19 @@
                                 }
 
                                 if (response.status === 200) {
-                                    const jsonData = parseJSON(response.response).sentences;
+                                    let jsonData = parseJSON(response.response).sentences;
                                     console.log("API JSON Received");
                                     const validationError = validateApiResponse(jsonData);
                                     if (!validationError) {
-                                        state.examples = jsonData;
                                         state.apiDataFetched = true;
                                         // check if the sentence is in the vocab
-                                        await validateAndUpdateExamples()
+                                        jsonData = await validateAndUpdateExamples(jsonData)
                                         const sentenceResults = await Promise.all(
-                                            state.examples.map(async sentence => {
+                                            jsonData.map(async sentence => {
                                                 return await preprocessSentence(sentence);
                                             }))
-                                        state.examples = sentenceResults.filter(s => s);
+                                        jsonData = sentenceResults.filter(s => s);
+                                        state.examples = jsonData;
                                         await IndexedDBManager.save(db, searchVocab, jsonData);
                                         resolve();
                                     } else {
