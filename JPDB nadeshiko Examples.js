@@ -883,126 +883,6 @@
         return anchor;
     }
 
-    function createStarButton() {
-        // Create a star button with an icon and click event for toggling favorite state
-        const anchor = createAnchor('0.5rem');
-        const starIcon = document.createElement('span');
-        const storedValue = getItem(state.vocab);
-        // console.log(storedValue);
-
-        // Determine the star icon (filled or empty) based on stored value
-        if (storedValue) {
-            const [storedIndex, storedExactState] = storedValue.split(',');
-            const index = parseInt(storedIndex, 10);
-            const exactState = Boolean(parseInt(storedExactState, 10));
-            starIcon.textContent = (state.currentExampleIndex === index && state.exactSearch === exactState) ? '★' : '☆';
-        } else {
-            starIcon.textContent = '☆';
-        }
-
-
-        // Style the star icon
-        starIcon.style.fontSize = '1.4rem';
-        starIcon.style.color = '#3D8DFF';
-        starIcon.style.verticalAlign = 'middle';
-        starIcon.style.position = 'relative';
-        starIcon.style.top = '-2px';
-
-        // Append the star icon to the anchor and set up the click event to toggle star state
-        anchor.appendChild(starIcon);
-        anchor.addEventListener('click', (event) => {
-            event.preventDefault();
-            toggleStarState(starIcon);
-        });
-
-        return anchor;
-    }
-
-    function toggleStarState(starIcon) {
-        const storedValue = getItem(state.vocab);
-        const isBlacklisted = storedValue && storedValue.split(',').length > 1 && parseInt(storedValue.split(',')[1], 10) === 2;
-
-        // Return early if blacklisted
-        if (isBlacklisted) {
-            starIcon.textContent = '☆';
-            return;
-        }
-
-        // Toggle the star state between filled and empty
-        if (storedValue) {
-            const [storedIndex, storedExactState] = storedValue.split(',');
-            const index = parseInt(storedIndex, 10);
-            const exactState = storedExactState === '1';
-            if (index === state.currentExampleIndex && exactState === state.exactSearch) {
-                removeItem(state.vocab);
-                starIcon.textContent = '☆';
-            } else {
-                setItem(state.vocab, `${state.currentExampleIndex},${state.exactSearch ? 1 : 0}`);
-                starIcon.textContent = '★';
-            }
-        } else {
-            setItem(state.vocab, `${state.currentExampleIndex},${state.exactSearch ? 1 : 0}`);
-            starIcon.textContent = '★';
-        }
-    }
-
-    function createQuoteButton() {
-        // Create a quote button with an icon and click event for toggling quote style
-        const anchor = createAnchor('0rem');
-        const quoteIcon = document.createElement('span');
-
-        // Set the icon based on exact search state
-        quoteIcon.innerHTML = state.exactSearch ? '<b>「」</b>' : '『』';
-
-        // Style the quote icon
-        quoteIcon.style.fontSize = '1.1rem';
-        quoteIcon.style.color = '#3D8DFF';
-        quoteIcon.style.verticalAlign = 'middle';
-        quoteIcon.style.position = 'relative';
-        quoteIcon.style.top = '0px';
-
-        // Append the quote icon to the anchor and set up the click event to toggle quote state
-        anchor.appendChild(quoteIcon);
-        anchor.addEventListener('click', (event) => {
-            event.preventDefault();
-            toggleQuoteState(quoteIcon);
-        });
-
-        return anchor;
-    }
-
-    function toggleQuoteState(quoteIcon) {
-        const storedValue = getItem(state.vocab);
-        const isBlacklisted = storedValue && storedValue.split(',').length > 1 && parseInt(storedValue.split(',')[1], 10) === 2;
-
-        // Return early if blacklisted
-        if (isBlacklisted) {
-            return;
-        }
-
-        // Toggle between single and double quote styles
-        state.exactSearch = !state.exactSearch;
-        quoteIcon.innerHTML = state.exactSearch ? '<b>「」</b>' : '『』';
-
-        // Update state based on stored data
-        const storedData = getStoredData(state.vocab);
-        if (storedData && storedData.exactState === state.exactSearch) {
-            state.currentExampleIndex = storedData.index;
-        } else {
-            state.currentExampleIndex = 0;
-        }
-
-        state.apiDataFetched = false;
-        embedImageAndPlayAudio();
-        getNadeshikoData(state.vocab, state.exactSearch)
-            .then(() => {
-                embedImageAndPlayAudio();
-            })
-            .catch(error => {
-                console.error(error);
-            });
-    }
-
     function createMenuButton() {
         // Create a menu button with a dropdown menu
         const anchor = createAnchor('0.5rem');
@@ -1054,8 +934,7 @@
         const menuButton = createMenuButton();
         const textButton = createTextButton(vocab, exact);
         const speakerButton = createSpeakerButton(soundUrl);
-        const starButton = createStarButton();
-        const quoteButton = createQuoteButton();
+
 
         // Center the buttons within the container
         const centeredButtonsWrapper = document.createElement('div');
@@ -1063,7 +942,7 @@
         centeredButtonsWrapper.style.justifyContent = 'center';
         centeredButtonsWrapper.style.flex = '1';
 
-        centeredButtonsWrapper.append(textButton, speakerButton, starButton, quoteButton);
+        centeredButtonsWrapper.append(textButton, speakerButton);
         buttonContainer.append(centeredButtonsWrapper, menuButton);
 
         return buttonContainer;
@@ -1327,56 +1206,6 @@
         });
     }
 
-    function highlightVocab(sentence, vocab) {
-        // Highlight vocabulary in the sentence based on configuration
-        if (!CONFIG.COLORED_SENTENCE_TEXT) {
-            return sentence;
-        }
-
-        if (state.exactSearch) {
-            const regex = new RegExp(`(${vocab})`, 'g');
-            return sentence.replace(regex, '<span style="color: var(--outline-input-color);">$1</span>');
-        } else {
-            return vocab.split('').reduce((acc, char) => {
-                const regex = new RegExp(char, 'g');
-                return acc.replace(regex, `<span style="color: var(--outline-input-color);">${char}</span>`);
-            }, sentence);
-        }
-    }
-
-    function appendSentenceAndTranslation(wrapperDiv, sentence, translation) {
-        // Append sentence and translation to the wrapper div
-        const sentenceText = document.createElement('div');
-        sentenceText.innerHTML = highlightVocab(sentence, state.vocab);
-        sentenceText.style.marginTop = '10px';
-        sentenceText.style.fontSize = CONFIG.SENTENCE_FONT_SIZE;
-        sentenceText.style.color = 'lightgray';
-        sentenceText.style.maxWidth = CONFIG.IMAGE_WIDTH;
-        sentenceText.style.whiteSpace = 'pre-wrap';
-        wrapperDiv.appendChild(sentenceText);
-
-        if (CONFIG.ENABLE_EXAMPLE_TRANSLATION && translation) {
-            const translationText = document.createElement('div');
-            translationText.innerHTML = replaceSpecialCharacters(translation);
-            translationText.style.marginTop = '5px';
-            translationText.style.fontSize = CONFIG.TRANSLATION_FONT_SIZE;
-            translationText.style.color = 'var(--subsection-label-color)';
-            translationText.style.maxWidth = CONFIG.IMAGE_WIDTH;
-            translationText.style.whiteSpace = 'pre-wrap';
-            wrapperDiv.appendChild(translationText);
-        }
-    }
-
-    function appendNoneText(wrapperDiv) {
-        // Append a "None" text to the wrapper div
-        const noneText = document.createElement('div');
-        noneText.textContent = 'None';
-        noneText.style.marginTop = '10px';
-        noneText.style.fontSize = '85%';
-        noneText.style.color = 'var(--subsection-label-color)';
-        wrapperDiv.appendChild(noneText);
-    }
-
     function createNavigationDiv() {
         // Create and style the navigation div
         const navigationDiv = document.createElement('div');
@@ -1540,11 +1369,6 @@
 
         renderImageAndPlayAudio(state.vocab, !reviewUrlPattern.test(window.location.href));
         preloadImages();
-    }
-
-    function replaceSpecialCharacters(text) {
-        // Replace special characters in the text
-        return text.replace(/<br>/g, '\n').replace(/&quot;/g, '"').replace(/\n/g, '<br>');
     }
 
     function preloadImages() {
