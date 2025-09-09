@@ -25,7 +25,6 @@
 (function () {
     'use strict';
     let nadeshikoApiKey = GM_getValue("nadeshiko-api-key", "");
-    let jpdbApiKey = GM_getValue("jpdb-api-key", "");
     // Register menu commands
     GM_registerMenuCommand("Set Nadeshiko API Key", async () => {
         nadeshikoApiKey = fetchNadeshikoApiKey();
@@ -42,33 +41,6 @@
             alert("API Key saved successfully!");
         }
 
-        return apiKey;
-    }
-
-    function fetchJPDBApiKey() {
-        let apiKey = prompt("A JPDB API key is required for this extension to work.\n\nYou can get it in the settings page of your JPDB account.");
-        GM_setValue("jpdb-api-key", apiKey);
-
-        if (apiKey) {
-            // send ping at https://jpdb.io/api/v1/ping to check if the key is valid
-            GM_xmlhttpRequest({
-                method: "POST",
-                url: "https://jpdb.io/api/v1/ping",
-                headers: {
-                    "Authorization": `Bearer ${apiKey}`,
-                },
-                onload: function (response) {
-                    if (response.status === 200) {
-                        alert("API Key saved successfully!");
-                    } else {
-                        alert("Invalid API Key. Please check your key and try again.");
-                    }
-                },
-                onerror: function (error) {
-                    alert("An error occurred while checking the API Key. Please try again.");
-                }
-            });
-        }
         return apiKey;
     }
 
@@ -326,6 +298,58 @@
             });
         },
 
+        importJPDBData(db, data) {
+            return new Promise(async (resolve, reject) => {
+                try {
+                    /* -------- 1. build slimData -------- */
+                    const slimData = {};
+                    if (data?.cards_vocabulary_jp_en) {
+                        data.cards_vocabulary_jp_en.forEach(card => {
+                            const last = card.reviews?.at(-1);
+                            const grade =
+                                last?.grade === 'pass' ? 1
+                                    : last?.grade === 'fail' ? 2
+                                        : 0;
+                            slimData[`${card.spelling}|${card.reading}`] = grade;
+                        });
+                    } else {
+                        reject('Unexpected data format'); return;
+                    }
+
+                    if (CONFIG.DEBUG) { resolve(); return; }
+
+                    /* -------- 2. read current amount first -------- */
+                    const entries = await this.getAll(db);
+
+                    /* -------- 3. open a fresh read-write tx -------- */
+                    const tx    = db.transaction(['dataStore'], 'readwrite');
+                    const store = tx.objectStore('dataStore');
+
+                    // delete oldest if over quota
+                    if (entries.length >= this.MAX_ENTRIES) {
+                        entries
+                            .sort((a, b) => a.timestamp - b.timestamp)
+                            .slice(0, entries.length - this.MAX_ENTRIES + 1)
+                            .forEach(entry => store.delete(entry.keyword));
+                    }
+
+                    // add / replace the imported blob
+                    store.put({
+                        keyword:  'jpdb-imported-data',
+                        data:     slimData,
+                        timestamp: Date.now()
+                    });
+
+                    tx.oncomplete = () => { console.log('IndexedDB import OK'); resolve(); };
+                    tx.onerror    = e  => { reject('IndexedDB import failed: ' + e.target.error); };
+
+                } catch (err) {
+                    reject(`Error in importJPDBData: ${err}`);
+                }
+            });
+        },
+
+
         delete() {
             return new Promise((resolve, reject) => {
                 const request = indexedDB.deleteDatabase('NadeshikoDB');
@@ -535,41 +559,40 @@
 
     async function preprocessSentence(sentence) {
         const content = sentence.segment_info.content_jp;
-        // Set weights for each sentence by calling jpdb api (if needed)
-        if (CONFIG.WEIGHTED_SENTENCES && jpdbApiKey) {
-            const jipidata = {
-                text: content,
-                token_fields: [],
-                position_length_encoding: "utf16",
-                vocabulary_fields: ["card_state", "spelling", "reading"]
-            };
+        // Set weights for each sentence by calling checking jpdb history data
+        const db = await IndexedDBManager.open();
+        const datas = await IndexedDBManager.get(db, "jpdb-imported-data");
+        if (CONFIG.WEIGHTED_SENTENCES && datas) {
             let vocabInSentence = false;
-            await processJPDBData(sentence, jipidata);
+            await processJPDBData(sentence);
 
-            async function processJPDBData(sentence, jipidata) {
+            async function processJPDBData(sentence) {
                 return await new Promise((resolve) => {
                     GM_xmlhttpRequest({
                         method: "POST",
-                        url: "https://jpdb.io/api/v1/parse",
-                        headers: {Authorization: `Bearer ${jpdbApiKey}`},
-                        data: JSON.stringify(jipidata),
+                        url: "http://sargus.fr:8000/api/parse",
+                        data: JSON.stringify({
+                            "sentence": content,
+                        }),
                         onload: function (response) {
                             let weight = 1;
                             if (response.status === 200) {
                                 try {
-                                    const vocab = JSON.parse(response.responseText).vocabulary || [];
+                                    // reponse is format [ "spelling reading", "spelling reading", ... ]
+                                    const vocab = JSON.parse(response.responseText);
                                     if (vocab.length > 0) {
-                                        const VALID_CARD_STATES = ["known", "never-forget", "learning"];
                                         let matchCount = 0;
                                         for (const item of vocab) {
+                                            const spelling = item.split(' ')[0];
+                                            const reading = item.split(' ')[1] || '';
                                             if (!state.reading){
                                                 vocabInSentence = true;
                                             }
-                                            else if (item && item[1] && item[2] && item[1].includes(state.vocab) && item[2].includes(state.reading)) {
+                                            else if (spelling && reading && (spelling.includes(state.vocab) || reading.includes(state.reading))) {
                                                 vocabInSentence = true;
                                             }
-                                            if (item && item[0] && VALID_CARD_STATES.includes(item[0][0])) {
-                                                matchCount++;
+                                            if (datas && datas[`${spelling}|${reading}`] !== undefined) {
+                                                matchCount += datas[`${spelling}|${reading}`];
                                             }
                                         }
                                         weight = (matchCount * 100 / (vocab.length));
@@ -1992,6 +2015,47 @@
         menuContent.style.maxWidth = '550px';
         menuContent.style.maxHeight = '80%';
         menuContent.style.overflowY = 'auto';
+        // Make a button to upload the json history file
+        const uploadButton = document.createElement('button');
+        uploadButton.textContent = 'Upload History JSON';
+        uploadButton.style.margin = '10px';
+        uploadButton.addEventListener('click', async () => {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = '.json';
+            fileInput.style.display = 'none';
+            fileInput.addEventListener('change', async (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = async (e) => {
+                        try {
+                            const data = JSON.parse(e.target.result);
+                            console.log('Parsed data:', data);
+                            const db = await IndexedDBManager.open();
+                            await IndexedDBManager.importJPDBData(db, data).then(() => {
+                                    alert('History imported successfully!');
+                                    // Reload the page to reflect changes
+                                    location.reload();
+                                }
+                            ).catch((error) => {
+                                console.error('Error importing data:', error);
+                                alert('Failed to import history. Please check the console for details.');
+                                console.log(data);
+
+                            });
+                        } catch (error) {
+                            console.error('Error parsing JSON:', error);
+                            alert('Invalid JSON file. Please upload a valid JPDB history file.');
+                            console.log(data);
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            });
+            document.body.appendChild(fileInput);
+            fileInput.click();
+        })
 
         for (const [key, value] of Object.entries(CONFIG)) {
             const optionContainer = document.createElement('div');
