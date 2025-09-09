@@ -30,8 +30,8 @@
     GM_registerMenuCommand("Set Nadeshiko API Key", async () => {
         nadeshikoApiKey = fetchNadeshikoApiKey();
     });
-    GM_registerMenuCommand("Set JPDB API Key", async () => {
-        jpdbApiKey = fetchJPDBApiKey();
+    GM_registerMenuCommand("Open Configuration", () => {
+        createOverlayMenu();
     });
 
     function fetchNadeshikoApiKey() {
