@@ -7,17 +7,13 @@ A Tampermonkey userscript for **jpdb.io** that embeds anime examples from **Nade
 - **Anime example images** displayed alongside vocab.  
 - **Audio support** with autoplay and manual controls.  
 - **Navigation arrows** to cycle through examples.  
-- **Favorites system** to select preferred examples.  
-- **Configurable settings** for appearance and behavior.  
-- **Blacklist feature** to block unwanted examples.  
+- **Configurable settings** for appearance and behavior.
 
 ## Controls  
 
 | Icon                | Function                                           |
 |---------------------|----------------------------------------------------|
 | 🔊 **Speaker**      | Play example audio.                                |
-| ⭐ **Star**          | Mark as favorite (★ = favorite, ☆ = non-favorite). |
-| 「」 **Exact Search** | Toggle exact search (「」 = enabled, 『』 = disabled). |
 | ◀ **Left Arrow**    | Go back one example.                               |
 | ▶ **Right Arrow**   | Go forward one example.                            |
 | ☰ **Menu Button**   | Open the settings menu.                            |
@@ -43,19 +39,16 @@ The settings menu (**☰**) allows customization of the script's behavior:
 - **Hotkeys** – Buttons to go to next/previous example. Can easily add any key by editing line #27
 - **Minimum Example Length** – Set a lower limit for sentence length.  
   - **⚠ Warning:** Changing this **will delete all current favorites.**  
-- **Blacklist** – Prevent specific examples from appearing.  
+- **Maximum Example Length** – Set an upper limit for sentence length.  
+  - **⚠ Warning:** Changing this **will delete all current favorites.**
 - **Randomize sentences** – Randomize the order of examples for a word.
-- **Weighted Randomization** – Randomize the order of examples for a word, but with a bias towards sentences with most known words. (Require jpdb API key)
+- **Weighted Randomization** – Randomize the order of examples for a word, but with a bias towards sentences with most known words. (Require jpdb history to be enabled)
 ## How It Works  
 
 The script searches **Nadeshiko** for examples based on the current vocabulary and embeds them into **jpdb.io**. Audio can be played manually or automatically.  
 
 ### **Audio Playback Note**  
 If autoplay doesn't work, check your browser's site settings (click the lock icon next to the URL) and allow automatic audio playback.  
-
-## Favorite System  
-
-Favorites allow you to pick a default example for a word. Next time the word appears, your chosen example will be used.  
 
 ## Links  
 
@@ -66,8 +59,7 @@ Favorites allow you to pick a default example for a word. Next time the word app
 
 ## Similar Projects  
  
-- **JPDB Media Support:** [https://github.com/felix-ops/JPDB-Media-Support](https://github.com/felix-ops/JPDB-Media-Support)  
-- **Standalone Chrome Variant:** [https://chromewebstore.google.com/detail/jpdb-immersion-kit-exampl/knedmjcggobmokkephmaggbgakjjckbf](https://chromewebstore.google.com/detail/jpdb-immersion-kit-exampl/knedmjcggobmokkephmaggbgakjjckbf) 
+- **JPDB Media Support:** [https://github.com/felix-ops/JPDB-Media-Support](https://github.com/felix-ops/JPDB-Media-Support)
 
 ## Contributing  
 
