@@ -1880,7 +1880,7 @@
             document.body.appendChild(fileInput);
             fileInput.click();
         })
-
+        menuContent.appendChild(uploadButton);
         for (const [key, value] of Object.entries(CONFIG)) {
             const optionContainer = document.createElement('div');
             optionContainer.style.marginBottom = '10px';
