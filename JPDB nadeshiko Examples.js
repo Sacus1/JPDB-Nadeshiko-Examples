@@ -399,7 +399,13 @@
                         state.apiDataFetched = true;
                         resolve();
                     } else {
-                        console.log(`Calling API for: ${searchVocab}`);
+                        const data = JSON.stringify({
+                                query: searchVocab,
+                                "limit": 500,
+                                "min_length": CONFIG.MINIMUM_EXAMPLE_LENGTH,
+                                "max_length": CONFIG.MAXIMUM_EXAMPLE_LENGTH
+                            })
+                        console.log(`Calling API for: ${searchVocab} with data ${data}`);
                         if (!nadeshikoApiKey) {
                             // Ask for API Key on search if not set to prevent 401 errors
                             nadeshikoApiKey = fetchNadeshikoApiKey();
@@ -411,19 +417,13 @@
                         GM_xmlhttpRequest({
                             method: "POST",
                             url: url,
-                            data: JSON.stringify({
-                                query: searchVocab,
-                                "limit": 500,
-                                "min_length": CONFIG.MINIMUM_EXAMPLE_LENGTH,
-                                "max_length": CONFIG.MAXIMUM_EXAMPLE_LENGTH
-                            }),
+                            data: data,
                             headers:
                                 {
                                     "X-API-Key": nadeshikoApiKey,
                                     "Content-Type": "application/json"
                                 },
                             onload: async function (response) {
-                                console.log(state)
                                 async function validateAndUpdateExamples(jsonState) {
                                     try {
                                         const sargusData = {
@@ -651,7 +651,7 @@
 
     // PARSE VOCAB FUNCTIONS =====================================================================================================================
     function parseVocabFromAnswer() {
-        // Select all links containing "/kanji/" or "/vocabulary/" in the href attribute 
+        // Select all links containing "/kanji/" or "/vocabulary/" in the href attribute
         const elements = document.querySelectorAll('a[href*="/kanji/"], a[href*="/vocabulary/"]');
         console.log("Parsing Answer Page");
 
