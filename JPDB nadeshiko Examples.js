@@ -371,7 +371,7 @@
 
 
     // API FUNCTIONS=====================================================================================================================
-    function getNadeshikoData(vocab, exactSearch) {
+    function getNadeshikoData(vocab, exactSearch,reading = state?.reading) {
 
 
         return new Promise(async (resolve, reject) => {
@@ -427,13 +427,12 @@
                                 async function validateAndUpdateExamples(jsonState) {
                                     try {
                                         const sargusData = {
-                                            word: state?.vocab ?? '',
-                                            reading: state?.reading ?? '',          // optional reading
+                                            word: vocab,
+                                            reading:  reading,          // optional reading
                                             sentences: (jsonState ?? [])                        // guarantee an array
                                                 .map(e => e?.segment_info?.content_jp)                  // optional-chain every step
                                                 .filter(Boolean)                                        // keep only truthy strings
                                         };
-
                                         const names = await checkIfNames(sargusData);               // may throw/reject
                                         if (!Array.isArray(names)) {
                                             throw new TypeError('checkIfNames did not return an array.');
@@ -462,7 +461,7 @@
                                         jsonData = await validateAndUpdateExamples(jsonData)
                                         const sentenceResults = await Promise.all(
                                             jsonData.map(async sentence => {
-                                                return await preprocessSentence(sentence);
+                                                return await preprocessSentence(sentence,reading,vocab);
                                             }))
                                         jsonData = sentenceResults.filter(s => s);
                                         state.examples = jsonData;
@@ -557,7 +556,8 @@
         });
     }
 
-    async function preprocessSentence(sentence) {
+    async function preprocessSentence(sentence,reading_ = state.reading,vocab_ = state.vocab)
+    {
         const content = sentence.segment_info.content_jp;
         // Set weights for each sentence by calling checking jpdb history data
         const db = await IndexedDBManager.open();
@@ -585,10 +585,10 @@
                                         for (const item of vocab) {
                                             const spelling = item.split(' ')[0];
                                             const reading = item.split(' ')[1] || '';
-                                            if (!state.reading){
+                                            if (!reading_){
                                                 vocabInSentence = true;
                                             }
-                                            else if (spelling && reading && (spelling.includes(state.vocab) || reading.includes(state.reading))) {
+                                            else if (spelling && reading && (spelling.includes(vocab_) || reading.includes(reading_))) {
                                                 vocabInSentence = true;
                                             }
                                             if (datas && datas[`${spelling}|${reading}`] !== undefined) {
@@ -614,7 +614,7 @@
 
             // if vocabInSentence is false, remove sentence from the examples
             if (!vocabInSentence) {
-                console.log(`Skipping sentence "${content}" because it does not contain the vocab "${state.vocab}" or reading "${state.reading}".`);
+                console.log(`Skipping sentence "${content}" because it does not contain the vocab "${vocab_}" or reading "${reading_}".`);
                 return null;
             }
         }
@@ -2347,23 +2347,43 @@
                 preprocessBtn.textContent = 'Preprocess All Words';
                 preprocessBtn.style.margin = '10px';
                 preprocessBtn.addEventListener('click', async () => {
-                    for (const vocabElement of vocabElements) {
-                        const aTag = vocabElement.querySelector('a');
-                        const href = aTag.getAttribute('href');
+                 preprocessBtn.disabled = true;
+                 const tasks = Array.from(vocabElements).map(async (vocabElement) => {
+                            const aTag = vocabElement.querySelector('a');
+                            const href = aTag?.getAttribute('href') || '';
 
-                        // Split the path into segments
-                        const segments = href.split('/');
+                            // Split the path into segments
+                            const segments = href.split('/');
 
-                        // The word is in the 4th segment (index 3)
-                        const lastSegment = segments[3] || '';
+                            // The word is in the 4th segment (index 3)
+                            const lastSegment = segments[3] || '';
 
-                        // Remove the fragment part after #
-                        const vocab = decodeURIComponent(lastSegment.split('#')[0]);
-                        console.log(vocab)
-                        if (vocab) {
-                            await getNadeshikoData(vocab, state.exactSearch);
-                        }
-                    }
+                            // Remove the fragment part after # and get reading
+                            const rubyElements = aTag.querySelectorAll('ruby'); 
+                            let vocab = '';
+                            let reading = '';
+
+                            if (rubyElements.length > 0) {
+                              // Build vocab and reading from ruby elements
+                              rubyElements.forEach(ruby => {
+                                const rt = ruby.querySelector('rt');
+                                vocab += ruby.childNodes[0]?.textContent.trim() || '';
+                                reading += rt?.textContent.trim() || ruby.textContent.trim();
+                              });
+                            } else {
+                              // No ruby elements, just use the text content
+                              vocab = decodeURIComponent(lastSegment.split('#')[0]);
+                              reading = vocab;
+                            }
+                            if (vocab) {
+                                try {
+                                    await getNadeshikoData(vocab, state.exactSearch,reading);
+                                } catch (e) {
+                                    console.error('Error preprocessing vocab:', vocab, e);
+                                }
+                            }
+                        });
+                        await Promise.all(tasks);
                     alert('Preprocessing complete!');
                 });
                 const entriesAmountTextElem = [...document.querySelectorAll('p')].find(
