@@ -464,7 +464,11 @@
                                                 return await preprocessSentence(sentence,reading,vocab);
                                             }))
                                         jsonData = sentenceResults.filter(s => s);
-                                        state.examples = jsonData;
+                                        if (jsonData && jsonData.length > 0) {
+                                            for (let i = 0; i < jsonData.length; i++) {
+                                                state.examples.push(jsonData[i]);
+                                            }
+                                        }
                                         await IndexedDBManager.save(db, searchVocab, jsonData);
                                         resolve();
                                     } else {
@@ -2321,6 +2325,10 @@
         setPageWidth();
         const sentenceElement = document.querySelector('.sentence');
         if (sentenceElement) {
+            const defaultSentence = sentenceElement.textContent.trim();
+            if (defaultSentence) {
+                state.examples = [{segment_info: {content_jp: defaultSentence}}];
+            }
             sentenceElement.textContent = "Waiting for data...";
         }
         const machineTranslationFrame = document.getElementById('machine-translation-frame');
