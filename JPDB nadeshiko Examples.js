@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-9-16
+// @version      2025-9-17
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo& Sacus
 // @namespace    jpdb-nadeshiko-examples
@@ -1048,7 +1048,7 @@
                 translationElement.textContent = translation;
             } else {
                 // get div above .card-sentence
-                const divAbove = sentenceElement.parentElement.previousElementSibling;
+                const divAbove = sentenceElement.parentElement.parentElement;
                 if (divAbove) {
                     const translationDiv = document.createElement('div');
                     translationDiv.style.display = 'flex';
