@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-9-17
+// @version      2025-9-18
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo& Sacus
 // @namespace    jpdb-nadeshiko-examples
@@ -114,10 +114,6 @@
             setItem(key, nonPrefixedValue);
         }
         return nonPrefixedValue;
-    };
-    const removeItem = (key) => {
-        localStorage.removeItem(scriptPrefix + key);
-        localStorage.removeItem(key);
     };
 
     // Helper for transitioning to fully script-prefixed config state
@@ -313,16 +309,20 @@
                             slimData[`${card.spelling}|${card.reading}`] = grade;
                         });
                     } else {
-                        reject('Unexpected data format'); return;
+                        reject('Unexpected data format');
+                        return;
                     }
 
-                    if (CONFIG.DEBUG) { resolve(); return; }
+                    if (CONFIG.DEBUG) {
+                        resolve();
+                        return;
+                    }
 
                     /* -------- 2. read current amount first -------- */
                     const entries = await this.getAll(db);
 
                     /* -------- 3. open a fresh read-write tx -------- */
-                    const tx    = db.transaction(['dataStore'], 'readwrite');
+                    const tx = db.transaction(['dataStore'], 'readwrite');
                     const store = tx.objectStore('dataStore');
 
                     // delete oldest if over quota
@@ -335,13 +335,18 @@
 
                     // add / replace the imported blob
                     store.put({
-                        keyword:  'jpdb-imported-data',
-                        data:     slimData,
+                        keyword: 'jpdb-imported-data',
+                        data: slimData,
                         timestamp: Date.now()
                     });
 
-                    tx.oncomplete = () => { console.log('IndexedDB import OK'); resolve(); };
-                    tx.onerror    = e  => { reject('IndexedDB import failed: ' + e.target.error); };
+                    tx.oncomplete = () => {
+                        console.log('IndexedDB import OK');
+                        resolve();
+                    };
+                    tx.onerror = e => {
+                        reject('IndexedDB import failed: ' + e.target.error);
+                    };
 
                 } catch (err) {
                     reject(`Error in importJPDBData: ${err}`);
@@ -371,7 +376,7 @@
 
 
     // API FUNCTIONS=====================================================================================================================
-    function getNadeshikoData(vocab, exactSearch,reading = state?.reading) {
+    function getNadeshikoData(vocab, exactSearch, reading = state?.reading) {
 
 
         return new Promise(async (resolve, reject) => {
@@ -379,15 +384,6 @@
             const url = `https://api.brigadasos.xyz/api/v1/search/media/sentence`;
             const maxRetries = 5;
             let attempt = 0;
-
-            const storedValue = getItem(state.vocab);
-            const isBlacklisted = storedValue && storedValue.split(',').length > 1 && parseInt(storedValue.split(',')[1], 10) === 2;
-
-            // Return early if not blacklisted
-            if (isBlacklisted) {
-                resolve();
-                return;
-            }
 
             async function fetchData() {
                 try {
@@ -400,11 +396,11 @@
                         resolve();
                     } else {
                         const data = JSON.stringify({
-                                query: searchVocab,
-                                "limit": 500,
-                                "min_length": CONFIG.MINIMUM_EXAMPLE_LENGTH,
-                                "max_length": CONFIG.MAXIMUM_EXAMPLE_LENGTH
-                            })
+                            query: searchVocab,
+                            "limit": 500,
+                            "min_length": CONFIG.MINIMUM_EXAMPLE_LENGTH,
+                            "max_length": CONFIG.MAXIMUM_EXAMPLE_LENGTH
+                        })
                         console.log(`Calling API for: ${searchVocab} with data ${data}`);
                         if (!nadeshikoApiKey) {
                             // Ask for API Key on search if not set to prevent 401 errors
@@ -428,7 +424,7 @@
                                     try {
                                         const sargusData = {
                                             word: vocab,
-                                            reading:  reading,          // optional reading
+                                            reading: reading,          // optional reading
                                             sentences: (jsonState ?? [])                        // guarantee an array
                                                 .map(e => e?.segment_info?.content_jp)                  // optional-chain every step
                                                 .filter(Boolean)                                        // keep only truthy strings
@@ -461,7 +457,7 @@
                                         jsonData = await validateAndUpdateExamples(jsonData)
                                         const sentenceResults = await Promise.all(
                                             jsonData.map(async sentence => {
-                                                return await preprocessSentence(sentence,reading,vocab);
+                                                return await preprocessSentence(sentence, reading, vocab);
                                             }))
                                         jsonData = sentenceResults.filter(s => s);
                                         if (jsonData && jsonData.length > 0) {
@@ -560,8 +556,7 @@
         });
     }
 
-    async function preprocessSentence(sentence,reading_ = state.reading,vocab_ = state.vocab)
-    {
+    async function preprocessSentence(sentence, reading_ = state.reading, vocab_ = state.vocab) {
         const content = sentence.segment_info.content_jp;
         // Set weights for each sentence by calling checking jpdb history data
         const db = await IndexedDBManager.open();
@@ -589,10 +584,9 @@
                                         for (const item of vocab) {
                                             const spelling = item.split(' ')[0];
                                             const reading = item.split(' ')[1] || '';
-                                            if (!reading_){
+                                            if (!reading_) {
                                                 vocabInSentence = true;
-                                            }
-                                            else if (spelling && reading && (spelling.includes(vocab_) || reading.includes(reading_))) {
+                                            } else if (spelling && reading && (spelling.includes(vocab_) || reading.includes(reading_))) {
                                                 vocabInSentence = true;
                                             }
                                             if (datas && datas[`${spelling}|${reading}`] !== undefined) {
@@ -625,33 +619,6 @@
 
         return sentence;
     }
-
-    //FAVORITE DATA FUNCTIONS=====================================================================================================================
-    function getStoredData(key) {
-        // Retrieve the stored value from localStorage using the provided key
-        const storedValue = getItem(key);
-
-        // If a stored value exists, split it into index and exactState
-        if (storedValue) {
-            const [index, exactState] = storedValue.split(',');
-            return {
-                index: parseInt(index, 10), // Convert index to an integer
-                exactState: exactState === '1' // Convert exactState to a boolean
-            };
-        }
-
-        // Return default values if no stored value exists
-        return {index: 0, exactState: state.exactSearch};
-    }
-
-    function storeData(key, sentence, exactState) {
-        // Create a string value from index and exactState to store in localStorage
-        const value = `${sentence},${exactState ? 1 : 0}`;
-
-        // Store the value in localStorage using the provided key
-        setItem(key, value);
-    }
-
 
     // PARSE VOCAB FUNCTIONS =====================================================================================================================
     function parseVocabFromAnswer() {
@@ -911,7 +878,7 @@
         return anchor;
     }
 
-    function createTextButton(vocab, exact) {
+    function createTextButton(vocab) {
         // Create a text button for Nadeshiko
         const textButton = document.createElement('a');
         textButton.textContent = 'Nadeshiko';
@@ -924,7 +891,7 @@
         return textButton;
     }
 
-    function createButtonContainer(soundUrl, vocab, exact) {
+    function createButtonContainer(soundUrl, vocab) {
         // Create a container for all buttons
         const buttonContainer = document.createElement('div');
         buttonContainer.className = 'button-container';
@@ -936,7 +903,7 @@
 
         // Create individual buttons
         const menuButton = createMenuButton();
-        const textButton = createTextButton(vocab, exact);
+        const textButton = createTextButton(vocab);
         const speakerButton = createSpeakerButton(soundUrl);
 
 
@@ -1036,8 +1003,6 @@
         const sentence = example.segment_info?.content_jp || null;
         const translation = example.segment_info?.content_en || "";
         const deck_name = example.basic_info?.name_anime_romaji || "Unknown Anime";
-        const storedValue = getItem(state.vocab);
-        const isBlacklisted = storedValue && storedValue.split(',').length > 1 && parseInt(storedValue.split(',')[1], 10) === 2;
         // Update sentence class content with actual sentence text
         const sentenceElement = document.querySelector('.sentence');
         if (sentenceElement) {
@@ -1078,7 +1043,7 @@
 
         // Create and append the main wrapper and text button container
         const wrapperDiv = createWrapperDiv();
-        const textDiv = createButtonContainer(soundUrl, vocab, state.exactSearch);
+        const textDiv = createButtonContainer(soundUrl, vocab);
         wrapperDiv.appendChild(textDiv);
 
 
@@ -1089,11 +1054,7 @@
             textElement.style.whiteSpace = 'pre'; // Ensures newlines are respected
             return textElement;
         };
-
-        if (isBlacklisted) {
-            wrapperDiv.appendChild(createTextElement('BLACKLISTED'));
-            shouldAutoPlaySound = false;
-        } else if (state.apiDataFetched) {
+        if (state.apiDataFetched) {
             if (imageUrl) {
                 const imageElement = createImageElement(wrapperDiv, imageUrl, vocab, state.exactSearch);
                 if (imageElement) {
@@ -1391,10 +1352,6 @@
 
 
     //MENU FUNCTIONS=====================================================================================================================
-    ////FILE OPERATIONS=====================================================================================================================
-    function handleImportButtonClick() {
-        handleFileInput('application/json', importFavorites);
-    }
 
     function handleImportDButtonClick() {
         handleFileInput('application/json', importData);
@@ -1418,54 +1375,6 @@
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    }
-
-    function addBlacklist() {
-        setItem(state.vocab, `0,2`);
-        location.reload();
-    }
-
-    function remBlacklist() {
-        removeItem(state.vocab);
-        location.reload();
-    }
-
-    function exportFavorites() {
-        const favorites = {};
-        for (let i = 0; i < localStorage.length; i++) {
-            const key = localStorage.key(i);
-            if (key.startsWith(scriptPrefix)) {
-                const keyPrefixless = key.substring(scriptPrefix.length); // chop off the script prefix
-                if (!keyPrefixless.startsWith(configPrefix)) {
-                    favorites[keyPrefixless] = localStorage.getItem(key);
-                    // For backwards compatibility keep the exported keys prefixless
-                }
-            }
-        }
-        const data = JSON.stringify(favorites, null, 2);
-        createBlobAndDownload(data, 'favorites.json', 'application/json');
-    }
-
-    function importFavorites(event) {
-        const file = event.target.files[0];
-        if (!file) {
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = function (e) {
-            try {
-                const favorites = JSON.parse(e.target.result);
-                for (const key in favorites) {
-                    setItem(key, favorites[key]);
-                }
-                alert('Favorites imported successfully!');
-                location.reload();
-            } catch (error) {
-                alert('Error importing favorites:', error);
-            }
-        };
-        reader.readAsText(file);
     }
 
     async function exportData() {
@@ -1578,13 +1487,11 @@
     }
 
     function createMenuButtons() {
-        const blacklistContainer = createBlacklistContainer();
-        const favoritesContainer = createFavoritesContainer();
         const dataContainer = createDataContainer();
         const actionButtonsContainer = createActionButtonsContainer();
 
         const buttonContainer = document.createElement('div');
-        buttonContainer.append(blacklistContainer, favoritesContainer, dataContainer, actionButtonsContainer);
+        buttonContainer.append(dataContainer, actionButtonsContainer);
 
         return buttonContainer;
     }
@@ -1601,37 +1508,6 @@
         button.style.padding = '5px 0';
         button.addEventListener('click', onClick);
         return button;
-    }
-
-    ////BLACKLIST BUTTONS
-    function createBlacklistContainer() {
-        const blacklistButtonWidth = '200px';
-
-        const addBlacklistButton = createButton('Add to Blacklist', '10px', addBlacklist, blacklistButtonWidth);
-        const remBlacklistButton = createButton('Remove from Blacklist', '10px', remBlacklist, blacklistButtonWidth);
-
-        const blacklistContainer = document.createElement('div');
-        blacklistContainer.style.textAlign = 'center';
-        blacklistContainer.style.marginTop = '10px';
-        blacklistContainer.append(addBlacklistButton, remBlacklistButton);
-
-        return blacklistContainer;
-    }
-
-    ////FAVORITE BUTTONS
-    function createFavoritesContainer() {
-        const favoritesButtonWidth = '200px';
-
-        const exportButton = createButton('Export Favorites', '10px', exportFavorites, favoritesButtonWidth);
-        const importButton = createButton('Import Favorites', '10px', handleImportButtonClick, favoritesButtonWidth);
-
-        const favoritesContainer = document.createElement('div');
-        favoritesContainer.style.textAlign = 'center';
-        favoritesContainer.style.marginTop = '10px';
-        favoritesContainer.append(exportButton, importButton);
-
-        return favoritesContainer;
-
     }
 
     ////DATA BUTTONS
@@ -1715,7 +1591,7 @@
 
     function handleMinimumExampleLengthChange(newMinimumExampleLength, changes) {
         createConfirmationPopup(
-            'Changing Minimum Example Length will break your current favorites. They will all be deleted. Are you sure?',
+            'Changing Minimum Example Length will reset your cache and sentences will take longer to load at first Are you sure?',
             async () => {
                 await IndexedDBManager.delete();
                 CONFIG.MINIMUM_EXAMPLE_LENGTH = newMinimumExampleLength;
@@ -1793,7 +1669,7 @@
     function createDeleteButton(width) {
         const deleteButton = createButton('DELETE', '10px', () => {
             createConfirmationPopup(
-                'This will delete all your favorites and cached data. Are you sure?',
+                'This will delete all cached data. Are you sure?',
                 async () => {
                     await IndexedDBManager.delete();
                     Object.keys(localStorage).forEach(key => {
@@ -2355,43 +2231,43 @@
                 preprocessBtn.textContent = 'Preprocess All Words';
                 preprocessBtn.style.margin = '10px';
                 preprocessBtn.addEventListener('click', async () => {
-                 preprocessBtn.disabled = true;
-                 const tasks = Array.from(vocabElements).map(async (vocabElement) => {
-                            const aTag = vocabElement.querySelector('a');
-                            const href = aTag?.getAttribute('href') || '';
+                    preprocessBtn.disabled = true;
+                    const tasks = Array.from(vocabElements).map(async (vocabElement) => {
+                        const aTag = vocabElement.querySelector('a');
+                        const href = aTag?.getAttribute('href') || '';
 
-                            // Split the path into segments
-                            const segments = href.split('/');
+                        // Split the path into segments
+                        const segments = href.split('/');
 
-                            // The word is in the 4th segment (index 3)
-                            const lastSegment = segments[3] || '';
+                        // The word is in the 4th segment (index 3)
+                        const lastSegment = segments[3] || '';
 
-                            // Remove the fragment part after # and get reading
-                            const rubyElements = aTag.querySelectorAll('ruby'); 
-                            let vocab = '';
-                            let reading = '';
+                        // Remove the fragment part after # and get reading
+                        const rubyElements = aTag.querySelectorAll('ruby');
+                        let vocab = '';
+                        let reading = '';
 
-                            if (rubyElements.length > 0) {
-                              // Build vocab and reading from ruby elements
-                              rubyElements.forEach(ruby => {
+                        if (rubyElements.length > 0) {
+                            // Build vocab and reading from ruby elements
+                            rubyElements.forEach(ruby => {
                                 const rt = ruby.querySelector('rt');
                                 vocab += ruby.childNodes[0]?.textContent.trim() || '';
                                 reading += rt?.textContent.trim() || ruby.textContent.trim();
-                              });
-                            } else {
-                              // No ruby elements, just use the text content
-                              vocab = decodeURIComponent(lastSegment.split('#')[0]);
-                              reading = vocab;
+                            });
+                        } else {
+                            // No ruby elements, just use the text content
+                            vocab = decodeURIComponent(lastSegment.split('#')[0]);
+                            reading = vocab;
+                        }
+                        if (vocab) {
+                            try {
+                                await getNadeshikoData(vocab, state.exactSearch, reading);
+                            } catch (e) {
+                                console.error('Error preprocessing vocab:', vocab, e);
                             }
-                            if (vocab) {
-                                try {
-                                    await getNadeshikoData(vocab, state.exactSearch,reading);
-                                } catch (e) {
-                                    console.error('Error preprocessing vocab:', vocab, e);
-                                }
-                            }
-                        });
-                        await Promise.all(tasks);
+                        }
+                    });
+                    await Promise.all(tasks);
                     alert('Preprocessing complete!');
                 });
                 const entriesAmountTextElem = [...document.querySelectorAll('p')].find(
@@ -2408,9 +2284,6 @@
             return;
         }
 
-        // Retrieve stored data for the current vocabulary
-        const {sentence, exactState} = getStoredData(state.vocab);
-        state.exactSearch = exactState;
 
         // Fetch data if needed, process in parallel threads where possible
         if (!state.apiDataFetched) {
@@ -2422,14 +2295,6 @@
                 const preloadPromise = Promise.resolve().then(() => preloadImages());
 
                 state.examples = await processingPromise;
-
-                // Set current example index if a sentence exists
-                if (sentence) {
-                    state.currentExampleIndex = state.examples.findIndex(
-                        example => example.segment_info.content_jp === sentence
-                    );
-                }
-
                 // Wait for preloading to complete
                 await preloadPromise;
 
@@ -2441,18 +2306,8 @@
                 embedImageAndPlayAudio(); // Still try to show what we can
             }
         } else if (state.apiDataFetched) {
-            // Data already fetched, just update display
-            if (sentence) {
-                // Process sentence index finding without logging
-                state.currentExampleIndex = await process_sentences(
-                    state,
-                    state.examples.findIndex(example => example.segment_info.content_jp === sentence),
-                    false
-                );
-            }
-
             // Update display and settings
-            Promise.all([
+            await Promise.all([
                 Promise.resolve().then(() => embedImageAndPlayAudio()),
                 Promise.resolve().then(() => setVocabSize())
             ]);
