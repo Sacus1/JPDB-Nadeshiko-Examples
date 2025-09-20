@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-9-18
+// @version      2025-9-20
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo& Sacus
 // @namespace    jpdb-nadeshiko-examples
@@ -382,7 +382,7 @@
         return new Promise(async (resolve, reject) => {
             const searchVocab = exactSearch ? `"${vocab}"` : vocab;
             const url = `https://api.brigadasos.xyz/api/v1/search/media/sentence`;
-            const maxRetries = 5;
+            const maxRetries = 2;
             let attempt = 0;
 
             async function fetchData() {
