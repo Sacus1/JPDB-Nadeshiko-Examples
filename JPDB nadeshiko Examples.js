@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-9-28
+// @version      2025-9-28.1
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo& Sacus
 // @namespace    jpdb-nadeshiko-examples
@@ -397,7 +397,7 @@
                     } else {
                         const data = JSON.stringify({
                             query: searchVocab,
-                            "limit": 500,
+                            "limit": 50,
                             "min_length": CONFIG.MINIMUM_EXAMPLE_LENGTH,
                             "max_length": CONFIG.MAXIMUM_EXAMPLE_LENGTH
                         })
