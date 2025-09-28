@@ -189,7 +189,7 @@
                             console.log(`Deleting entry for keyword "${keyword}" because it is expired.`);
                             await this.deleteEntry(db, keyword);
                             resolve(null);
-                        } else if (validationError) {
+                        } else if (validationError && !keyword === 'jpdb-imported-data') {
                             console.log(`Deleting entry for keyword "${keyword}" due to validation error: ${validationError}`);
                             await this.deleteEntry(db, keyword);
                             resolve(null);
@@ -560,12 +560,18 @@
         });
     }
 
+    function katakanaToHiragana(str) {
+        const table = {'ア': 'あ', 'イ': 'い', 'ウ': 'う', 'エ': 'え', 'オ': 'お', 'カ': 'か', 'キ': 'き', 'ク': 'く', 'ケ': 'け', 'コ': 'こ', 'サ': 'さ', 'シ': 'し', 'ス': 'す', 'セ': 'せ', 'ソ': 'そ', 'タ': 'た', 'チ': 'ち', 'ツ': 'つ', 'テ': 'て', 'ト': 'と', 'ナ': 'な', 'ニ': 'に', 'ヌ': 'ぬ', 'ネ': 'ね', 'ノ': 'の', 'ハ': 'は', 'ヒ': 'ひ', 'フ': 'ふ', 'ヘ': 'へ', 'ホ': 'ほ', 'マ': 'ま', 'ミ': 'み', 'ム': 'む', 'メ': 'め', 'モ': 'も', 'ヤ': 'や', 'ユ': 'ゆ', 'ヨ': 'よ', 'ラ': 'ら', 'リ': 'り', 'ル': 'る', 'レ': 'れ', 'ロ': 'ろ', 'ワ': 'わ', 'ヲ': 'を', 'ン': 'ん', 'ァ': 'ぁ', 'ィ': 'ぃ', 'ゥ': 'ぅ', 'ェ': 'ぇ', 'ォ': 'ぉ', 'ャ': 'ゃ', 'ュ': 'ゅ', 'ョ': 'ょ', 'ヮ': 'ゎ', 'ッ': 'っ', 'ー': 'ー', 'ガ': 'が', 'ギ': 'ぎ', 'グ': 'ぐ', 'ゲ': 'げ', 'ゴ': 'ご', 'ザ': 'ざ', 'ジ': 'じ', 'ズ': 'ず', 'ゼ': 'ぜ', 'ゾ': 'ぞ', 'ダ': 'だ', 'ヂ': 'ぢ', 'ヅ': 'づ', 'デ': 'で', 'ド': 'ど', 'バ': 'ば', 'ビ': 'び', 'ブ': 'ぶ', 'ベ': 'べ', 'ボ': 'ぼ', 'パ': 'ぱ', 'ピ': 'ぴ', 'プ': 'ぷ', 'ペ': 'ぺ', 'ポ': 'ぽ', 'ヴ': 'ゔ'}
+        return str.split('').map(char => table[char] || char).join('');
+    }
+
     async function preprocessSentence(sentence, reading_ = state.reading, vocab_ = state.vocab) {
         const content = sentence.segment_info.content_jp;
         // Set weights for each sentence by calling checking jpdb history data
         const db = await IndexedDBManager.open();
         const datas = await IndexedDBManager.get(db, "jpdb-imported-data");
         if (CONFIG.WEIGHTED_SENTENCES && datas) {
+            console.log(`Processing sentence for weighting: "${content}"`);
             let vocabInSentence = false;
             await processJPDBData(sentence);
 
@@ -577,6 +583,9 @@
                         data: JSON.stringify({
                             "sentence": content,
                         }),
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
                         onload: function (response) {
                             let weight = 1;
                             if (response.status === 200) {
@@ -585,23 +594,30 @@
                                     const vocab = JSON.parse(response.responseText);
                                     if (vocab.length > 0) {
                                         let matchCount = 0;
+                                        let furi_sentence = ""
                                         for (const item of vocab) {
                                             const spelling = item.split(' ')[0];
-                                            const reading = item.split(' ')[1] || '';
+                                            const reading = katakanaToHiragana(item.split(' ')[1]) || '';
+                                            furi_sentence += `<ruby>${spelling}<rt>${reading}</rt></ruby>`;
+                                            vocabInSentence = true;    
                                             if (!reading_) {
                                                 vocabInSentence = true;
-                                            } else if (spelling && reading && (spelling.includes(vocab_) || reading.includes(reading_))) {
+                                            } else if (spelling && reading && (spelling.includes(vocab_) && reading.includes(reading_))) {
                                                 vocabInSentence = true;
                                             }
                                             if (datas && datas[`${spelling}|${reading}`] !== undefined) {
                                                 matchCount += datas[`${spelling}|${reading}`];
                                             }
                                         }
+                                        sentence.furi_sentence = furi_sentence;
                                         weight = (matchCount * 100 / (vocab.length));
                                     }
                                 } catch {
                                     console.error("Error parsing parse response");
                                 }
+                            }
+                            else {
+                                console.error("Error parsing parse response :", response.responseText);
                             }
                             sentence.weight = weight;
                             resolve();
@@ -620,7 +636,10 @@
                 return null;
             }
         }
-
+        else {
+            sentence.weight = 1;
+            console.log(`Skipping sentence "${content} because ${CONFIG.WEIGHTED_SENTENCES ? "no JPDB data found" : "weighting is disabled"}."`);
+        }
         return sentence;
     }
 
@@ -1006,11 +1025,16 @@
         const soundUrl = example.media_info?.path_audio || null;
         const sentence = example.segment_info?.content_jp || null;
         const translation = example.segment_info?.content_en || "";
+        const sentence_furi = example.furi_sentence || sentence;
         const deck_name = example.basic_info?.name_anime_romaji || "Unknown Anime";
         // Update sentence class content with actual sentence text
         const sentenceElement = document.querySelector('.sentence');
         if (sentenceElement) {
-            sentenceElement.textContent = sentence;
+            if ((state.isFront && CONFIG.FURIGANA_ON_FRONT_SIDE) || (!state.isFront && CONFIG.FURIGANA_ON_BACKSIDE)) {
+                sentenceElement.innerHTML = sentence_furi;
+            } else {
+                sentenceElement.textContent = sentence;
+            }
             // Update translation class content with actual translation text
             const translationElement = document.querySelector('.sentence-translation');
             if (translationElement) {
@@ -2154,17 +2178,19 @@
             // Use Fisher-Yates shuffle for better performance
             // Only shuffle a maximum of 50 items for large arrays to improve performance
             const maxShuffleItems = Math.min(sentences.length, 50);
-
+            for (let i = 0; i < max; i++) {
+                if (!sentences[i] || !sentences[i].weight) {
+                    sentences[i] = await preprocessSentence(sentences[i]);
+                }
+            }
             // Optimized weighted random algorithm
             const getWeightedRandomIndex = async (max) => {
                 // Pre-calculate weights array for performance
                 const weights = new Array(max);
                 let totalWeight = 0;
                 for (let i = 0; i < max; i++) {
-                    if (!sentences[i] || !sentences[i].weight) {
-                        await preprocessSentence(sentences[i]);
-                    }
                     const weight = (sentences[i].weight || 1);
+                    console.log(`Sentence: ${sentences[i].segment_info.content_jp}, Weight: ${weight}`);
                     weights[i] = weight;
                     totalWeight += weight;
                 }
