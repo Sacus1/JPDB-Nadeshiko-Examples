@@ -74,6 +74,9 @@
         MAXIMUM_EXAMPLE_LENGTH: 100,
         HOTKEYS: ['None'],
         DEFAULT_TO_EXACT_SEARCH: true,
+        BLUR_EXAMPLE_SENTENCE: true,
+        FURIGANA_ON_BACKSIDE: true,
+        FURIGANA_ON_FRONT_SIDE: false,
         // On changing this config option, the icons change but the sentences don't, so you
         // have to click once to match up the icons and again to actually change the sentences
         RANDOM_SENTENCE: RANDOM_SENTENCE_ENUM,
@@ -1021,7 +1024,10 @@
                     const translationDiv = document.createElement('div');
                     translationDiv.style.display = 'flex';
                     translationDiv.style.justifyContent = 'center';
-                    translationDiv.innerHTML = `<div class="sentence-translation blur" style="" onclick="this.classList.remove('blur');" onmouseover="this.classList.remove('blur');">${translation}</div>`;
+                    if (CONFIG.BLUR_EXAMPLE_SENTENCE)
+                        translationDiv.innerHTML = `<div class="sentence-translation blur" style="" onclick="this.classList.remove('blur');" onmouseover="this.classList.remove('blur');">${translation}</div>`;
+                    else
+                        translationDiv.innerHTML = `<div class="sentence-translation" style="">${translation}</div>`;
                     divAbove.appendChild(translationDiv);
                 }
             }
@@ -2199,7 +2205,7 @@
     async function onPageLoad() {
         // Initialize state and determine vocabulary based on URL
         state.embedAboveSubsectionMeanings = false;
-
+        state.isFront = !document.querySelector('.result');
         // Early layout adjustments without waiting
         setPageWidth();
         const sentenceElement = document.querySelector('.sentence');
