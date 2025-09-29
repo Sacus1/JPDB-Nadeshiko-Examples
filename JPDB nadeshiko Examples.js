@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-9-28-2
+// @version      2025-9-29
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo& Sacus
 // @namespace    jpdb-nadeshiko-examples
@@ -2178,7 +2178,7 @@
             // Use Fisher-Yates shuffle for better performance
             // Only shuffle a maximum of 50 items for large arrays to improve performance
             const maxShuffleItems = Math.min(sentences.length, 50);
-            for (let i = 0; i < max; i++) {
+            for (let i = 0; i < maxShuffleItems; i++) {
                 if (!sentences[i] || !sentences[i].weight) {
                     sentences[i] = await preprocessSentence(sentences[i]);
                 }
