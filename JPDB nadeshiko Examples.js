@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-9-29
+// @version      2025-9-28-2
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo& Sacus
 // @namespace    jpdb-nadeshiko-examples
@@ -599,7 +599,7 @@
                                             const spelling = item.split(' ')[0];
                                             const reading = katakanaToHiragana(item.split(' ')[1]) || '';
                                             furi_sentence += `<ruby>${spelling}<rt>${reading}</rt></ruby>`;
-                                            vocabInSentence = true;    
+                                            vocabInSentence = true;
                                             if (!reading_) {
                                                 vocabInSentence = true;
                                             } else if (spelling && reading && (spelling.includes(vocab_) && reading.includes(reading_))) {
@@ -613,7 +613,7 @@
                                         weight = (matchCount * 100 / (vocab.length));
                                     }
                                 } catch {
-                                    console.error("Error parsing parse response");
+                                    console.error("Error parsing parse response, got :",response.responseText);
                                 }
                             }
                             else {
@@ -2175,13 +2175,11 @@
 
         // Randomize sentences if needed
         if (shouldRandomize) {
-            // Use Fisher-Yates shuffle for better performance
-            // Only shuffle a maximum of 50 items for large arrays to improve performance
-            const maxShuffleItems = Math.min(sentences.length, 50);
-            for (let i = 0; i < maxShuffleItems; i++) {
+            for (let i = 0; i < sentences.length; i++) {
                 if (!sentences[i] || !sentences[i].weight) {
                     sentences[i] = await preprocessSentence(sentences[i]);
                 }
+                console.log(`Sentence: ${sentences[i].segment_info.content_jp}, Weight: ${sentences[i].weight}`);
             }
             // Optimized weighted random algorithm
             const getWeightedRandomIndex = async (max) => {
@@ -2190,7 +2188,6 @@
                 let totalWeight = 0;
                 for (let i = 0; i < max; i++) {
                     const weight = (sentences[i].weight || 1);
-                    console.log(`Sentence: ${sentences[i].segment_info.content_jp}, Weight: ${weight}`);
                     weights[i] = weight;
                     totalWeight += weight;
                 }
@@ -2211,8 +2208,8 @@
             };
 
             // Fisher-Yates shuffle with weighted randomization
-            for (let i = maxShuffleItems - 1; i > 0; i--) {
-                console.log(maxShuffleItems - i, "/", maxShuffleItems)
+            for (let i = sentences.length - 1; i > 0; i--) {
+                console.log(sentences.length - i, "/", sentences.length)
                 const j = CONFIG.WEIGHTED_SENTENCES ?
                     await getWeightedRandomIndex(i + 1) :
                     Math.floor(Math.random() * (i + 1));
