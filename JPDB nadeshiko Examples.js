@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-10-2
+// @version      2025-11-7
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo& Sacus
 // @namespace    jpdb-nadeshiko-examples
@@ -190,11 +190,11 @@
                             await this.deleteEntry(db, keyword);
                             resolve(null);
                         } else if (validationError && !keyword === 'jpdb-imported-data') {
-                            console.log(`Deleting entry for keyword "${keyword}" due to validation error: ${validationError}`);
+                            console.error(`Deleting entry for keyword "${keyword}" due to validation error: ${validationError}`);
                             await this.deleteEntry(db, keyword);
                             resolve(null);
                         } else {
-                            resolve(result.data);
+                            resolve([result.data,result.timestamp]);
                         }
                     } else {
                         resolve(null);
@@ -215,7 +215,6 @@
                 request.onerror = (e) => reject('IndexedDB delete error: ' + e.target.errorCode);
             });
         },
-
 
         getAll(db) {
             return new Promise((resolve, reject) => {
@@ -242,7 +241,7 @@
                 try {
                     const validationError = validateApiResponse(data);
                     if (validationError) {
-                        console.log(`Invalid data detected: ${validationError}. Not saving to IndexedDB.`);
+                        console.error(`Invalid data detected: ${validationError}. Not saving to IndexedDB.`);
                         resolve();
                         return;
                     }
@@ -358,7 +357,6 @@
             });
         },
 
-
         delete() {
             return new Promise((resolve, reject) => {
                 const request = indexedDB.deleteDatabase('NadeshikoDB');
@@ -392,10 +390,14 @@
             async function fetchData() {
                 try {
                     const db = await IndexedDBManager.open();
-                    const cachedData = await IndexedDBManager.get(db, searchVocab);
+                    const cachedDatas = await IndexedDBManager.get(db, searchVocab);
+                    const timestamp = cachedDatas[1]
+                    const cachedData = cachedDatas[0]
+                    cachedData.push(timestamp)
                     if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
                         console.log('Data retrieved from IndexedDB');
                         state.examples = cachedData;
+                        console.log("Last updated: " + new Date(cachedData[cachedData.length - 1]).toLocaleString());
                         state.apiDataFetched = true;
                         resolve();
                     } else {
@@ -569,7 +571,7 @@
         const content = sentence.segment_info.content_jp;
         // Set weights for each sentence by calling checking jpdb history data
         const db = await IndexedDBManager.open();
-        const datas = await IndexedDBManager.get(db, "jpdb-imported-data");
+        const datas = (await IndexedDBManager.get(db, "jpdb-imported-data"))[0];
         if (CONFIG.WEIGHTED_SENTENCES && datas) {
             console.log(`Processing sentence for weighting: "${content}"`);
             let vocabInSentence = false;
@@ -2173,13 +2175,23 @@
             return sentences;
         }
 
+        // if timestamp is set and less than 30 seconds ago, skip
+        if (sentences.length > 0) {
+            const lastEntry = sentences[sentences.length -1 ];
+            // log copy of sentences
+            console.log(Array.from(sentences));
+            console.log(lastEntry);
+            if (typeof(lastEntry) === typeof(20) && (Date.now() - lastEntry < 30000)) {
+                return sentences;
+            }
+            sentences.pop(); // remove timestamp entry for processing
+        }
         // Randomize sentences if needed
         if (shouldRandomize) {
             for (let i = 0; i < sentences.length; i++) {
                 if (!sentences[i] || !sentences[i].weight) {
                     sentences[i] = await preprocessSentence(sentences[i]);
                 }
-                console.log(`Sentence: ${sentences[i].segment_info.content_jp}, Weight: ${sentences[i].weight}`);
             }
             // Optimized weighted random algorithm
             const getWeightedRandomIndex = async (max) => {
@@ -2209,7 +2221,6 @@
 
             // Fisher-Yates shuffle with weighted randomization
             for (let i = sentences.length - 1; i > 0; i--) {
-                console.log(sentences.length - i, "/", sentences.length)
                 const j = CONFIG.WEIGHTED_SENTENCES ?
                     await getWeightedRandomIndex(i + 1) :
                     Math.floor(Math.random() * (i + 1));
@@ -2220,7 +2231,6 @@
                 }
             }
         }
-
         return sentences;
     }
 
@@ -2330,6 +2340,8 @@
                 // Wait for preloading to complete
                 await preloadPromise;
 
+                const db = await IndexedDBManager.open();
+                await IndexedDBManager.save(db,state.exactSearch ? `"${state.vocab}"` : state.vocab, state.examples);
                 // Finally, display the example
                 embedImageAndPlayAudio();
             } catch (error) {
