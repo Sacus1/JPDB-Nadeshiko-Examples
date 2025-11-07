@@ -1018,8 +1018,18 @@
     let hotkeysListener;
 
     function renderImageAndPlayAudio(vocab, shouldAutoPlaySound) {
-        if (state.apiDataFetched === false) {
+        if (state.examples.length === 0) {
             console.log("No data");
+            // replace text by no data
+            const sentenceElement = document.querySelector('.sentence');
+            if (sentenceElement) {
+                    sentenceElement.textContent = 'NO DATA';
+                // Update translation class content with actual translation text
+                const translationElement = document.querySelector('.sentence-translation');
+                if (translationElement) {
+                    translationElement.remove()
+                }
+            }
             return;
         }
         const example = state.examples[state.currentExampleIndex] || {};
@@ -2244,9 +2254,9 @@
         const sentenceElement = document.querySelector('.sentence');
         if (sentenceElement) {
             const defaultSentence = sentenceElement.textContent.trim();
-            // if (defaultSentence) {
-            //     state.examples = [{segment_info: {content_jp: defaultSentence}}];
-            // }
+            if (defaultSentence) {
+                state.examples = [{segment_info: {content_jp: defaultSentence}}];
+            }
             sentenceElement.textContent = "Waiting for data...";
         }
         const machineTranslationFrame = document.getElementById('machine-translation-frame');
