@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-11-7
+// @version      2025-11-9
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo& Sacus
 // @namespace    jpdb-nadeshiko-examples
@@ -391,10 +391,10 @@
                 try {
                     const db = await IndexedDBManager.open();
                     const cachedDatas = await IndexedDBManager.get(db, searchVocab);
-                    const timestamp = cachedDatas[1]
-                    const cachedData = cachedDatas[0]
-                    cachedData.push(timestamp)
-                    if (cachedData && Array.isArray(cachedData) && cachedData.length > 0) {
+                    if (cachedDatas && Array.isArray(cachedDatas)) {
+                        const timestamp = cachedDatas[1]
+                        const cachedData = cachedDatas[0]
+                        cachedData.push(timestamp)
                         console.log('Data retrieved from IndexedDB');
                         state.examples = cachedData;
                         console.log("Last updated: " + new Date(cachedData[cachedData.length - 1]).toLocaleString());
@@ -568,6 +568,9 @@
     }
 
     async function preprocessSentence(sentence, reading_ = state.reading, vocab_ = state.vocab) {
+        if (!Array.isArray(sentence)) {
+            return sentence;
+        }
         const content = sentence.segment_info.content_jp;
         // Set weights for each sentence by calling checking jpdb history data
         const db = await IndexedDBManager.open();
@@ -614,8 +617,8 @@
                                         sentence.furi_sentence = furi_sentence;
                                         weight = (matchCount * 100 / (vocab.length));
                                     }
-                                } catch {
-                                    console.error("Error parsing parse response, got :",response.responseText);
+                                } catch (e) {
+                                    console.error("Error parsing parse response, got :",response.responseText, e);
                                 }
                             }
                             else {
