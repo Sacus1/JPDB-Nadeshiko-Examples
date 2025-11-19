@@ -25,6 +25,8 @@
 (function () {
     'use strict';
     let nadeshikoApiKey = GM_getValue("nadeshiko-api-key", "");
+    const apiBaseUrl = "http://sargus.fr:8000/api";
+
     // Register menu commands
     GM_registerMenuCommand("Set Nadeshiko API Key", async () => {
         nadeshikoApiKey = fetchNadeshikoApiKey();
@@ -304,12 +306,7 @@
                     const slimData = {};
                     if (data?.cards_vocabulary_jp_en) {
                         data.cards_vocabulary_jp_en.forEach(card => {
-                            const last = card.reviews?.at(-1);
-                            const grade =
-                                last?.grade === 'pass' ? 1
-                                    : last?.grade === 'fail' ? 2
-                                        : 0;
-                            slimData[`${card.spelling}|${card.reading}`] = grade;
+                            slimData[`${card.spelling}|${card.reading}`] = 1;
                         });
                     } else {
                         reject('Unexpected data format');
@@ -426,41 +423,12 @@
                                     "Content-Type": "application/json"
                                 },
                             onload: async function (response) {
-                                async function validateAndUpdateExamples(jsonState) {
-                                    try {
-                                        const sargusData = {
-                                            word: vocab,
-                                            reading: reading,          // optional reading
-                                            sentences: (jsonState ?? [])                        // guarantee an array
-                                                .map(e => e?.segment_info?.content_jp)                  // optional-chain every step
-                                                .filter(Boolean)                                        // keep only truthy strings
-                                        };
-                                        const names = await checkIfNames(sargusData);               // may throw/reject
-                                        if (!Array.isArray(names)) {
-                                            throw new TypeError('checkIfNames did not return an array.');
-                                        }
-                                        if (names.length !== jsonState.length) {
-                                            throw new RangeError(
-                                                `Mismatch: received ${names.length} flags for ${jsonState.length} examples.`
-                                            );
-                                        }
-
-                                        jsonState = jsonState.filter((_, i) => !names[i]);
-                                        return jsonState; // return filtered examples
-                                    } catch (err) {
-                                        console.error('Failed to filter examples:', err);
-                                        // Decide how to handle the error: show a message, re-throw, etc.
-                                    }
-                                }
-
                                 if (response.status === 200) {
                                     let jsonData = parseJSON(response.response).sentences;
-                                    console.log("API JSON Received");
                                     const validationError = validateApiResponse(jsonData);
                                     if (!validationError) {
                                         state.apiDataFetched = true;
                                         // check if the sentence is in the vocab
-                                        jsonData = await validateAndUpdateExamples(jsonData)
                                         const sentenceResults = await Promise.all(
                                             jsonData.map(async sentence => {
                                                 return await preprocessSentence(sentence, reading, vocab);
@@ -534,7 +502,7 @@
         return await new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
                 method: "POST",
-                url: "http://sargus.fr:8000/api/check_names",
+                url: apiBaseUrl + "/check_names",
                 data: JSON.stringify(sargusData),
                 headers: {
                     "Content-Type": "application/json"
@@ -568,15 +536,11 @@
     }
 
     async function preprocessSentence(sentence, reading_ = state.reading, vocab_ = state.vocab) {
-        if (!Array.isArray(sentence)) {
-            return sentence;
-        }
         const content = sentence.segment_info.content_jp;
         // Set weights for each sentence by calling checking jpdb history data
         const db = await IndexedDBManager.open();
         const datas = (await IndexedDBManager.get(db, "jpdb-imported-data"))[0];
         if (CONFIG.WEIGHTED_SENTENCES && datas) {
-            console.log(`Processing sentence for weighting: "${content}"`);
             let vocabInSentence = false;
             await processJPDBData(sentence);
 
@@ -584,7 +548,7 @@
                 return await new Promise((resolve) => {
                     GM_xmlhttpRequest({
                         method: "POST",
-                        url: "http://sargus.fr:8000/api/parse",
+                        url: apiBaseUrl + "/parse",
                         data: JSON.stringify({
                             "sentence": content,
                         }),
@@ -595,11 +559,11 @@
                             let weight = 1;
                             if (response.status === 200) {
                                 try {
-                                    // reponse is format [ "spelling reading", "spelling reading", ... ]
                                     const vocab = JSON.parse(response.responseText);
                                     if (vocab.length > 0) {
                                         let matchCount = 0;
                                         let furi_sentence = ""
+                                        const difficulty = vocab[0].split(' ')[2];
                                         for (const item of vocab) {
                                             const spelling = item.split(' ')[0];
                                             const reading = katakanaToHiragana(item.split(' ')[1]) || '';
@@ -615,7 +579,10 @@
                                             }
                                         }
                                         sentence.furi_sentence = furi_sentence;
-                                        weight = (matchCount * 100 / (vocab.length));
+                                        // increase weight when ratio of matched vocab to total vocab is high and reduce when difficuly is high
+                                        weight = Math.min(1, matchCount / vocab.length);
+                                        weight = Math.min(1, weight * (1 - (parseInt(difficulty) / 10)));
+                                        console.log(`Sentence "${content}" has weight: ${weight.toFixed(2)} based on ${matchCount} matches out of ${vocab.length} vocab items with difficulty ${difficulty}.`);
                                     }
                                 } catch (e) {
                                     console.error("Error parsing parse response, got :",response.responseText, e);
@@ -2189,16 +2156,14 @@
         }
 
         // if timestamp is set and less than 30 seconds ago, skip
-        if (sentences.length > 0) {
-            const lastEntry = sentences[sentences.length -1 ];
-            // log copy of sentences
-            console.log(Array.from(sentences));
-            console.log(lastEntry);
-            if (typeof(lastEntry) === typeof(20) && (Date.now() - lastEntry < 30000)) {
-                return sentences;
-            }
-            sentences.pop(); // remove timestamp entry for processing
+        const lastEntry = sentences[sentences.length -1 ];
+        // log copy of sentences
+        console.log(Array.from(sentences));
+        console.log(lastEntry);
+        if (typeof(lastEntry) === typeof(20) && (Date.now() - lastEntry < 30000)) {
+            return sentences;
         }
+        sentences.pop(); // remove timestamp entry for processing
         // Randomize sentences if needed
         if (shouldRandomize) {
             for (let i = 0; i < sentences.length; i++) {
@@ -2206,43 +2171,19 @@
                     sentences[i] = await preprocessSentence(sentences[i]);
                 }
             }
-            // Optimized weighted random algorithm
-            const getWeightedRandomIndex = async (max) => {
-                // Pre-calculate weights array for performance
-                const weights = new Array(max);
-                let totalWeight = 0;
-                for (let i = 0; i < max; i++) {
-                    const weight = (sentences[i].weight || 1);
-                    weights[i] = weight;
-                    totalWeight += weight;
-                }
-
-                // Get random value proportional to total weight
-                const random = Math.random() * totalWeight;
-                let cumulativeWeight = 0;
-
-                // Find the index
-                for (let i = 0; i < max; i++) {
-                    cumulativeWeight += weights[i];
-                    if (random <= cumulativeWeight) {
-                        return i;
-                    }
-                }
-
-                return max - 1; // Fallback
-            };
-
-            // Fisher-Yates shuffle with weighted randomization
-            for (let i = sentences.length - 1; i > 0; i--) {
-                const j = CONFIG.WEIGHTED_SENTENCES ?
-                    await getWeightedRandomIndex(i + 1) :
-                    Math.floor(Math.random() * (i + 1));
-
-                // Swap elements
-                if (i !== j) {
-                    [sentences[i], sentences[j]] = [sentences[j], sentences[i]];
-                }
+            // TODO : Add a slider option for alpha value (lower is easier sentences, 0 is fully random, higher is harder sentences)
+            function weightedShuffle(items, alpha = -1) {
+                return items
+                    .map((item, i) => {
+                        // Gumbel noise
+                        const g = -Math.log(-Math.log(Math.random()));
+                        return { item, key: alpha * item[i].weight + g };
+                    })
+                    .sort((a, b) => a.key - b.key)
+                    .map(x => x.item);
             }
+
+            sentences = weightedShuffle(sentences.map((s, i) => [s, i]), 1).map(pair => pair[0]);
         }
         return sentences;
     }
