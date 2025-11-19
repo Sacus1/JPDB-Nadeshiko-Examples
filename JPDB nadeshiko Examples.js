@@ -584,6 +584,10 @@
                                         weight = Math.min(1, weight * (1 - (parseInt(difficulty) / 10)));
                                         console.log(`Sentence "${content}" has weight: ${weight.toFixed(2)} based on ${matchCount} matches out of ${vocab.length} vocab items with difficulty ${difficulty}.`);
                                     }
+                                    else {
+                                        console.error("Error parsing parse response, got empty vocab array :", response.responseText);
+                                        sentence.weight = -10
+                                    }
                                 } catch (e) {
                                     console.error("Error parsing parse response, got :",response.responseText, e);
                                 }
