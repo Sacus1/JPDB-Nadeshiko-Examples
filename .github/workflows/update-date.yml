@@ -18,7 +18,7 @@ jobs:
       - name: Update 3rd line with today's date
         run: |
           TODAY=$(date +%Y-%m-%d)
-          sed -i "3s|.*|// @version      $TODAY|" path/to/your-file.txt
+          sed -i "3s|.*|// @version      $TODAY|" "JPDB nadeshiko Examples.js"
 
       - name: Commit changes
         run: |
