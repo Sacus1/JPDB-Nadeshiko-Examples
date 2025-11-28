@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-11-21
+// @version      2025-11-9
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo& Sacus
 // @namespace    jpdb-nadeshiko-examples
@@ -2192,6 +2192,21 @@
         return sentences;
     }
 
+    /**
+ * Removes <rt> tags from a DOM element directly.
+ * Warning: This modifies the actual DOM element passed in.
+ * @param {HTMLElement} element - The DOM element to clean.
+ */
+    function removeRtFromDOM(element) {
+        if (!element) return;
+
+        // Find all <rt> tags within this element
+        const rtTags = element.querySelectorAll('rt');
+
+        // Loop through and remove them from the DOM
+        rtTags.forEach(tag => tag.remove());
+    }
+
     //MAIN FUNCTIONS=====================================================================================================================
     async function onPageLoad() {
         // Initialize state and determine vocabulary based on URL
@@ -2201,6 +2216,7 @@
         setPageWidth();
         const sentenceElement = document.querySelector('.sentence');
         if (sentenceElement) {
+            removeRtFromDOM(sentenceElement)
             const defaultSentence = sentenceElement.textContent.trim();
             if (defaultSentence) {
                 state.examples = [{segment_info: {content_jp: defaultSentence}}];
