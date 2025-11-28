@@ -24,7 +24,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add path/to/your-file.txt
+          git add JPDB nadeshiko Examples.js
           git commit -m "Update version date to $TODAY" || echo "No changes to commit"
 
       - name: Push
