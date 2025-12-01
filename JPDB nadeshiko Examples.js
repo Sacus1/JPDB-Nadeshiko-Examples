@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-11-28
+// @version      2025-11-9
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
-// @author       awoo& Sacus
+// @author       awoo & Sacus
 // @namespace    jpdb-nadeshiko-examples
 // @match        https://jpdb.io/review*
 // @match        https://jpdb.io/vocabulary/*
@@ -428,6 +428,7 @@
                                     const validationError = validateApiResponse(jsonData);
                                     if (!validationError) {
                                         state.apiDataFetched = true;
+                                        console.log(jsonData)
                                         // check if the sentence is in the vocab
                                         const sentenceResults = await Promise.all(
                                             jsonData.map(async sentence => {
@@ -453,6 +454,8 @@
                                         }
                                     }
                                 } else {
+                                    console.error(`Failed to call api :`);
+                                    console.error(response);
                                     reject(`API call failed with status: ${response.status}`);
                                 }
                             },
@@ -539,8 +542,9 @@
         const content = sentence.segment_info.content_jp;
         // Set weights for each sentence by calling checking jpdb history data
         const db = await IndexedDBManager.open();
-        const datas = (await IndexedDBManager.get(db, "jpdb-imported-data"))[0];
-        if (CONFIG.WEIGHTED_SENTENCES && datas) {
+        const datas = (await IndexedDBManager.get(db, "jpdb-imported-data"));
+        if (CONFIG.WEIGHTED_SENTENCES && datas && datas[0]) {
+            datas = datas[0];
             let vocabInSentence = false;
             await processJPDBData(sentence);
 
