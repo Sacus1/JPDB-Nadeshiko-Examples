@@ -542,7 +542,7 @@
         const content = sentence.segment_info.content_jp;
         // Set weights for each sentence by calling checking jpdb history data
         const db = await IndexedDBManager.open();
-        const datas = (await IndexedDBManager.get(db, "jpdb-imported-data"));
+        let datas = (await IndexedDBManager.get(db, "jpdb-imported-data"));
         if (CONFIG.WEIGHTED_SENTENCES && datas && datas[0]) {
             datas = datas[0];
             let vocabInSentence = false;
