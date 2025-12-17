@@ -17,8 +17,8 @@
 // @grant        GM_getValue
 // @grant        GM_registerMenuCommand
 // @license      MIT
-// @downloadURL https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.user.js
-// @updateURL https://update.greasyfork.org/scripts/529745/JPDB%20Nadeshiko%20Examples.meta.js
+// @downloadURL https://raw.githubusercontent.com/Sacus1/JPDB-Nadeshiko-Examples/refs/heads/main/JPDB%20nadeshiko%20Examples.js
+// @updateURL https://raw.githubusercontent.com/Sacus1/JPDB-Nadeshiko-Examples/refs/heads/main/JPDB%20nadeshiko%20Examples.js
 // ==/UserScript==
 /*jshint esversion: 11 */
 /* global GM_addElement, GM_xmlhttpRequest, GM_setValue, GM_getValue, GM_registerMenuCommand */
@@ -1017,6 +1017,7 @@
         const translation = example.segment_info?.content_en || "";
         const sentence_furi = example.furi_sentence || sentence;
         const deck_name = example.basic_info?.name_anime_romaji || "Unknown Anime";
+        console.log(sentence,state.isFront)
         // Update sentence class content with actual sentence text
         const sentenceElement = document.querySelector('.sentence');
         if (sentenceElement) {
@@ -1052,7 +1053,13 @@
                 const sentenceDiv = document.createElement('div');
                 sentenceDiv.style.display = 'flex';
                 sentenceDiv.style.justifyContent = 'center';
-                sentenceDiv.innerHTML = `<div style="display: flex;"><div style="display: flex; flex-direction: column;"><div style="display: flex; align-items: baseline; column-gap: 0.25rem;" class="card-sentence"><div class="sentence" style="margin-left: 0.3rem;">${sentence_furi}</div><a class="icon-link" href="/edit-shown-sentence?v=1168870&amp;s=3448502455&amp;r=1858493110&amp;origin=%2Freview%3Fc%3Dvf%2C1168870%2C3448502455%26r%3D2"><i class="ti ti-pencil"></i></a></div><div style="display: flex;justify-content: center;"><div class="sentence-translation blur" style="" onclick="this.classList.remove('blur');" onmouseover="this.classList.remove('blur');">${translation}</div></div></div></div>`;
+                let content;
+                 if ((state.isFront && CONFIG.FURIGANA_ON_FRONT_SIDE) || (!state.isFront && CONFIG.FURIGANA_ON_BACKSIDE)) {
+                     content = sentence_furi;
+                 } else {
+                     content = sentence;
+                 }
+                sentenceDiv.innerHTML = `<div style="display: flex;"><div style="display: flex; flex-direction: column;"><div style="display: flex; align-items: baseline; column-gap: 0.25rem;" class="card-sentence"><div class="sentence" style="margin-left: 0.3rem;">${content}</div><a class="icon-link" href="/edit-shown-sentence?v=1168870&amp;s=3448502455&amp;r=1858493110&amp;origin=%2Freview%3Fc%3Dvf%2C1168870%2C3448502455%26r%3D2"><i class="ti ti-pencil"></i></a></div><div style="display: flex;justify-content: center;"><div class="sentence-translation blur" style="" onclick="this.classList.remove('blur');" onmouseover="this.classList.remove('blur');">${translation}</div></div></div></div>`;
                 answerBox.appendChild(sentenceDiv);
 
             }
@@ -2169,9 +2176,13 @@
         console.log(Array.from(sentences));
         console.log(lastEntry);
         if (typeof(lastEntry) === typeof(20) && (Date.now() - lastEntry < 30000)) {
+            console.log("Don't change because time difference is ",Date.now() - lastEntry)
             return sentences;
         }
-        sentences.pop(); // remove timestamp entry for processing
+        while (typeof(sentences[sentences.length -1 ]) === typeof(20))
+        {
+            sentences.pop(); // remove timestamp entry for processing
+        }
         // Randomize sentences if needed
         if (shouldRandomize) {
             for (let i = 0; i < sentences.length; i++) {
@@ -2180,18 +2191,18 @@
                 }
             }
             // TODO : Add a slider option for alpha value (lower is easier sentences, 0 is fully random, higher is harder sentences)
-            function weightedShuffle(items, alpha = -1) {
+            function weightedShuffle(items, alpha) {
+                console.log("alpha",alpha)
                 return items
                     .map((item, i) => {
-                        // Gumbel noise
-                        const g = -Math.log(-Math.log(Math.random()));
-                        return { item, key: alpha * item[i].weight + g };
+                        const g = Math.random()*100;
+                        return { item, key: alpha * (item.weight || 0) + g };
                     })
                     .sort((a, b) => a.key - b.key)
                     .map(x => x.item);
             }
 
-            sentences = weightedShuffle(sentences.map((s, i) => [s, i]), 1).map(pair => pair[0]);
+            sentences = weightedShuffle(sentences.map((s, i) => [s, i]),-10000).map(pair => pair[0]);
         }
         return sentences;
     }
