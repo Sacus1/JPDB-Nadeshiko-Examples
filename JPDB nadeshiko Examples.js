@@ -571,7 +571,12 @@
                                         for (const item of vocab) {
                                             const spelling = item.split(' ')[0];
                                             const reading = katakanaToHiragana(item.split(' ')[1]) || '';
-                                            furi_sentence += `<ruby>${spelling}<rt>${reading}</rt></ruby>`;
+											const specialChars = ['ー', '、', '。']; // extend as needed
+											  if (specialChars.includes(spelling)) {
+											    furi_sentence += `<ruby>${spelling}</ruby>`;
+											  } else {
+											    furi_sentence += `<ruby>${spelling}<rt>${reading}</rt></ruby>`;
+											  }
                                             vocabInSentence = true;
                                             if (!reading_) {
                                                 vocabInSentence = true;
