@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         JPDB Nadeshiko Examples
-// @version      2025-12-18
+// @version      2026-03-22
 // @description  Embeds anime images & audio examples into JPDB review and vocabulary pages using Nadeshiko's API. Compatible only with TamperMonkey.
 // @author       awoo & Sacus
 // @namespace    jpdb-nadeshiko-examples
@@ -9,7 +9,8 @@
 // @match        https://jpdb.io/kanji/*
 // @match        https://jpdb.io/search*
 // @match        https://jpdb.io/deck*
-// @connect      api.brigadasos.xyz
+// @connect      api.nadeshiko.co
+// @connect      cdn.nadeshiko.co
 // @connect 	sargus.fr
 // @grant        GM_addElement
 // @grant        GM_xmlhttpRequest
@@ -36,7 +37,7 @@
     });
 
     function fetchNadeshikoApiKey() {
-        let apiKey = prompt("A Nadeshiko API key is required for this extension to work.\n\nYou can get one for free here after creating an account: https://nadeshiko.co/settings/developer");
+        let apiKey = prompt("A Nadeshiko API key is required for this extension to work.\n\nYou can get one for free here after creating an account: https://nadeshiko.co/user/developer");
         GM_setValue("nadeshiko-api-key", apiKey);
 
         if (apiKey) {
@@ -52,13 +53,9 @@
     // https://developer.mozilla.org/en-US/docs/Web/API/UI_Events/Keyboard_event_key_values#navigation_keys
     const hotkeyOptions = ['None', 'ArrowLeft ArrowRight', ', .', '[ ]', 'Q W'];
 
-    const RANDOM_SENTENCE_ENUM = {
-        DISABLE: 0,
-        ON_FIRST: 1,
-        EVERY_TIME: 2
-    };
     const CONFIG = {
         IMAGE_WIDTH: '400px',
+        IMAGE_HEIGHT: '225px',
         WIDE_MODE: true,
         DEFINITIONS_ON_RIGHT_IN_WIDE_MODE: false,
         ARROW_WIDTH: '75px',
@@ -74,14 +71,13 @@
         VOCAB_SIZE: '250%',
         MINIMUM_EXAMPLE_LENGTH: 0,
         MAXIMUM_EXAMPLE_LENGTH: 100,
-        HOTKEYS: ['None'],
-        DEFAULT_TO_EXACT_SEARCH: true,
+        HOTKEYS: ['ArrowLeft', 'ArrowRight'],
         BLUR_EXAMPLE_SENTENCE: true,
         FURIGANA_ON_BACKSIDE: true,
         FURIGANA_ON_FRONT_SIDE: false,
         // On changing this config option, the icons change but the sentences don't, so you
         // have to click once to match up the icons and again to actually change the sentences
-        RANDOM_SENTENCE: RANDOM_SENTENCE_ENUM,
+        RANDOM_SENTENCE: false,
         WEIGHTED_SENTENCES: false,
         DEBUG: false, // Set to true to not use IndexedDB and always fetch from API
     };
@@ -94,7 +90,7 @@
         embedAboveSubsectionMeanings: false,
         preloadedIndices: new Set(),
         currentAudio: null,
-        exactSearch: true,
+        audioGeneration: 0,
         error: false,
         currentlyPlayingAudio: false,
         reading: '',
@@ -191,7 +187,7 @@
                             console.log(`Deleting entry for keyword "${keyword}" because it is expired.`);
                             await this.deleteEntry(db, keyword);
                             resolve(null);
-                        } else if (validationError && !keyword === 'jpdb-imported-data') {
+                        } else if (validationError && keyword !== 'jpdb-imported-data') {
                             console.error(`Deleting entry for keyword "${keyword}" due to validation error: ${validationError}`);
                             await this.deleteEntry(db, keyword);
                             resolve(null);
@@ -375,19 +371,18 @@
 
 
     // API FUNCTIONS=====================================================================================================================
-    function getNadeshikoData(vocab, exactSearch, reading = state?.reading) {
+    function getNadeshikoData(vocab, reading = state?.reading) {
 
 
         return new Promise(async (resolve, reject) => {
-            const searchVocab = exactSearch ? `"${vocab}"` : vocab;
-            const url = `https://api.brigadasos.xyz/api/v1/search/media/sentence`;
+            const url = `https://api.nadeshiko.co/v1/search`;
             const maxRetries = 2;
             let attempt = 0;
 
             async function fetchData() {
                 try {
                     const db = await IndexedDBManager.open();
-                    const cachedDatas = await IndexedDBManager.get(db, searchVocab);
+                    const cachedDatas = await IndexedDBManager.get(db, vocab);
                     if (cachedDatas && Array.isArray(cachedDatas)) {
                         const timestamp = cachedDatas[1]
                         const cachedData = cachedDatas[0]
@@ -399,12 +394,16 @@
                         resolve();
                     } else {
                         const data = JSON.stringify({
-                            query: searchVocab,
-                            "limit": 50,
-                            "min_length": CONFIG.MINIMUM_EXAMPLE_LENGTH,
-                            "max_length": CONFIG.MAXIMUM_EXAMPLE_LENGTH
+                            query: { search: vocab },
+                            take: 25,
+                            filters: {
+                                segmentLengthChars: {
+                                    min: CONFIG.MINIMUM_EXAMPLE_LENGTH,
+                                    max: CONFIG.MAXIMUM_EXAMPLE_LENGTH
+                                }
+                            }
                         })
-                        console.log(`Calling API for: ${searchVocab} with data ${data}`);
+                        console.log(`Calling API for: ${vocab} with data ${data}`);
                         if (!nadeshikoApiKey) {
                             // Ask for API Key on search if not set to prevent 401 errors
                             nadeshikoApiKey = fetchNadeshikoApiKey();
@@ -419,12 +418,17 @@
                             data: data,
                             headers:
                                 {
-                                    "X-API-Key": nadeshikoApiKey,
+                                    "Authorization": "Bearer " + nadeshikoApiKey,
                                     "Content-Type": "application/json"
                                 },
                             onload: async function (response) {
                                 if (response.status === 200) {
-                                    let jsonData = parseJSON(response.response).sentences;
+                                    const parsed = parseJSON(response.response);
+                                    let jsonData = parsed.segments.map(seg => {
+                                        const media = parsed.includes.media[seg.mediaPublicId];
+                                        seg.mediaName = media ? media.nameRomaji : null;
+                                        return seg;
+                                    });
                                     const validationError = validateApiResponse(jsonData);
                                     if (!validationError) {
                                         state.apiDataFetched = true;
@@ -436,11 +440,10 @@
                                             }))
                                         jsonData = sentenceResults.filter(s => s);
                                         if (jsonData && jsonData.length > 0) {
-                                            for (let i = 0; i < jsonData.length; i++) {
-                                                state.examples.push(jsonData[i]);
-                                            }
+                                            // Keep the default JPDB sentence (first item) and replace the rest
+                                            const defaultExample = state.examples.find(e => e.isJpdbDefault);
+                                            state.examples = defaultExample ? [defaultExample, ...jsonData] : jsonData;
                                         }
-                                        await IndexedDBManager.save(db, searchVocab, jsonData);
                                         resolve();
                                     } else {
                                         attempt++;
@@ -498,6 +501,11 @@
             return 'Blank API';
         }
 
+        // Reject old-format cache entries (pre-v2 API) so they are naturally evicted
+        if (jsonData[0] && jsonData[0].segment_info !== undefined) {
+            return 'Stale cache format';
+        }
+
         return null; // No error
     }
 
@@ -539,7 +547,7 @@
     }
 
     async function preprocessSentence(sentence, reading_ = state.reading, vocab_ = state.vocab) {
-        const content = sentence.segment_info.content_jp;
+        const content = sentence.textJa?.content;
         // Set weights for each sentence by calling checking jpdb history data
         const db = await IndexedDBManager.open();
         let datas = (await IndexedDBManager.get(db, "jpdb-imported-data"));
@@ -889,17 +897,17 @@
     function createTextButton(vocab) {
         // Create a text button for Nadeshiko
         const textButton = document.createElement('a');
-        textButton.textContent = 'Nadeshiko';
+        textButton.textContent = 'Search in Nadeshiko...';
         textButton.style.color = 'var(--subsection-label-color)';
         textButton.style.fontSize = '85%';
         textButton.style.marginRight = '0.5rem';
         textButton.style.verticalAlign = 'middle';
-        textButton.href = `https://nadeshiko.co/search/sentence?query=${encodeURIComponent(vocab)}`;
+        textButton.href = `https://nadeshiko.co/search/${encodeURIComponent(vocab)}`;
         textButton.target = '_blank';
         return textButton;
     }
 
-    function createButtonContainer(soundUrl, vocab) {
+    function createButtonContainer(vocab) {
         // Create a container for all buttons
         const buttonContainer = document.createElement('div');
         buttonContainer.className = 'button-container';
@@ -912,8 +920,6 @@
         // Create individual buttons
         const menuButton = createMenuButton();
         const textButton = createTextButton(vocab);
-        const speakerButton = createSpeakerButton(soundUrl);
-
 
         // Center the buttons within the container
         const centeredButtonsWrapper = document.createElement('div');
@@ -921,8 +927,12 @@
         centeredButtonsWrapper.style.justifyContent = 'center';
         centeredButtonsWrapper.style.flex = '1';
 
-        centeredButtonsWrapper.append(textButton, speakerButton);
-        buttonContainer.append(centeredButtonsWrapper, menuButton);
+        // Invisible spacer to balance the menu button and keep text centered
+        const spacer = menuButton.cloneNode(true);
+        spacer.style.visibility = 'hidden';
+
+        centeredButtonsWrapper.append(textButton);
+        buttonContainer.append(spacer, centeredButtonsWrapper, menuButton);
 
         return buttonContainer;
     }
@@ -937,24 +947,28 @@
     }
 
     function playAudio(soundUrl) {
-        // Skip playing audio if it is already playing
-        if (state.currentlyPlayingAudio) {
-            //console.log('Duplicate audio was skipped.');
-            return;
-        }
-
         if (soundUrl) {
-            state.currentlyPlayingAudio = true;
             stopCurrentAudio();
+            state.currentlyPlayingAudio = true;
+            const generation = ++state.audioGeneration;
 
             GM_xmlhttpRequest({
                 method: 'GET',
                 url: soundUrl,
                 responseType: 'arraybuffer',
                 onload: function (response) {
+                    // Discard if a newer playAudio call was made while fetching
+                    if (generation !== state.audioGeneration) return;
+
                     const AudioContext = window.AudioContext || window.webkitAudioContext;
                     const audioContext = new AudioContext();
                     audioContext.decodeAudioData(response.response, function (buffer) {
+                        // Discard if a newer playAudio call was made while decoding
+                        if (generation !== state.audioGeneration) {
+                            audioContext.close();
+                            return;
+                        }
+
                         const source = audioContext.createBufferSource();
                         source.buffer = buffer;
 
@@ -970,9 +984,6 @@
 
                         // Play the audio, skip the first part to avoid any "pop"
                         source.start(0, 0.05);
-
-                        // Log when the audio starts playing
-                        //console.log('Audio has started playing.');
 
                         // Save the current audio context and source for stopping later
                         state.currentAudio = {
@@ -1000,7 +1011,22 @@
     // has to be declared (referenced in multiple functions but definition requires variables local to one function)
     let hotkeysListener;
 
+    function highlightVocab(text, highlight) {
+        if (!CONFIG.COLORED_SENTENCE_TEXT || !text) return text;
+        if (highlight) {
+            // Use API-provided highlight, replacing <em> with colored span
+            return highlight
+                .replace(/<em>(.*?)<\/em>/g, '<span style="color: #3d81ff;">$1</span>')
+                .replace(/<\/?mark>/g, '');
+        }
+        return text;
+    }
+
     function renderImageAndPlayAudio(vocab, shouldAutoPlaySound) {
+        // Always stop audio when navigating, even if the new example has no audio
+        stopCurrentAudio();
+        state.audioGeneration++;
+
         if (state.examples.length === 0) {
             console.log("No data");
             // replace text by no data
@@ -1016,27 +1042,89 @@
             return;
         }
         const example = state.examples[state.currentExampleIndex] || {};
-        const imageUrl = example.media_info?.path_image || null;
-        const soundUrl = example.media_info?.path_audio || null;
-        const sentence = example.segment_info?.content_jp || null;
-        const translation = example.segment_info?.content_en || "";
+
+        // Don't render anything on the front side for the JPDB default sentence
+        if (example.isJpdbDefault && state.isFront) {
+            return;
+        }
+
+        const imageUrl = example.urls ? example.urls.imageUrl : null;
+        const soundUrl = example.urls ? example.urls.audioUrl : null;
+        const sentence = example.textJa ? example.textJa.content : null;
+        const highlight = example.textJa ? example.textJa.highlight : null;
+        const translation = example.textEn ? example.textEn.content : null;
         const sentence_furi = example.furi_sentence || sentence;
-        const deck_name = example.basic_info?.name_anime_romaji || "Unknown Anime";
+        const deck_name = example.mediaName || "Unknown Anime";
         console.log(sentence,state.isFront)
+        // Add Nadeshiko speaker icon to the left of the sentence
+        const existingSpeakerIcon = document.getElementById('nadeshiko-speaker');
+        if (existingSpeakerIcon) existingSpeakerIcon.remove();
         // Update sentence class content with actual sentence text
+        // Skip updating for JPDB default — it's already correctly displayed by JPDB
         const sentenceElement = document.querySelector('.sentence');
-        if (sentenceElement) {
+        // Lock the sentence area height before changing content to prevent layout shift
+        const sentenceParent = sentenceElement ? (sentenceElement.closest('.card-sentence') || sentenceElement.parentElement) : null;
+        const sentenceGrandparent = sentenceParent ? sentenceParent.parentElement : null;
+        if (sentenceGrandparent) {
+            sentenceGrandparent.style.minHeight = sentenceGrandparent.offsetHeight + 'px';
+        }
+        if (sentenceElement && example.isJpdbDefault) {
+            // Restore original JPDB sentence and translation
+            if (state.jpdbSentenceHtml) {
+                sentenceElement.innerHTML = state.jpdbSentenceHtml;
+            }
+            const translationElement = document.querySelector('.sentence-translation');
+            if (translationElement && state.jpdbTranslationText) {
+                translationElement.textContent = state.jpdbTranslationText;
+            } else if (translationElement) {
+                translationElement.textContent = '';
+            }
+        } else if (sentenceElement && !example.isJpdbDefault) {
             if ((state.isFront && CONFIG.FURIGANA_ON_FRONT_SIDE) || (!state.isFront && CONFIG.FURIGANA_ON_BACKSIDE)) {
-                sentenceElement.innerHTML = sentence_furi;
+                sentenceElement.innerHTML = highlightVocab(sentence_furi, highlight);
+            } else if (CONFIG.COLORED_SENTENCE_TEXT) {
+                sentenceElement.innerHTML = highlightVocab(sentence, highlight);
             } else {
                 sentenceElement.textContent = sentence;
+            }
+            // Add speaker icon to the left of the sentence, like JPDB does
+            if (soundUrl) {
+                const cardSentence = sentenceElement.closest('.card-sentence') || sentenceElement.parentElement;
+                if (cardSentence) {
+                    const speakerIcon = document.createElement('a');
+                    speakerIcon.id = 'nadeshiko-speaker';
+                    speakerIcon.href = '#';
+                    speakerIcon.style.border = '0';
+                    speakerIcon.style.display = 'inline-flex';
+                    speakerIcon.style.verticalAlign = 'middle';
+                    speakerIcon.style.marginRight = '0.3rem';
+                    const icon = document.createElement('i');
+                    icon.className = 'ti ti-volume';
+                    icon.style.fontSize = '1.4rem';
+                    icon.style.color = '#3d81ff';
+                    speakerIcon.appendChild(icon);
+                    speakerIcon.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        playAudio(soundUrl);
+                    });
+                    cardSentence.insertBefore(speakerIcon, cardSentence.firstChild);
+                }
             }
             // Update translation class content with actual translation text
             const translationElement = document.querySelector('.sentence-translation');
             if (translationElement) {
-                translationElement.textContent = translation;
+                if (translation) {
+                    translationElement.textContent = translation;
+                    if (CONFIG.BLUR_EXAMPLE_SENTENCE && !state.isFront) {
+                        translationElement.classList.add('blur');
+                        translationElement.onclick = function() { this.classList.remove('blur'); };
+                        translationElement.onmouseover = function() { this.classList.remove('blur'); };
+                    }
+                } else {
+                    translationElement.textContent = '';
+                }
             }
-            else if (!state.isFront)
+            else if (!state.isFront && translation)
             {
                 // get div above .card-sentence
                 const divAbove = sentenceElement.parentElement.parentElement;
@@ -1051,25 +1139,28 @@
                     divAbove.appendChild(translationDiv);
                 }
             }
-        } else {
+        } else if (!example.isJpdbDefault) {
             const answerBox = document.querySelector('.answer-box');
             if (answerBox) {
-                // create div style="display: flex; justify-content: center;"
                 const sentenceDiv = document.createElement('div');
+                sentenceDiv.id = 'nadeshiko-sentence';
                 sentenceDiv.style.display = 'flex';
                 sentenceDiv.style.justifyContent = 'center';
                 let content;
-                 if ((state.isFront && CONFIG.FURIGANA_ON_FRONT_SIDE) || (!state.isFront && CONFIG.FURIGANA_ON_BACKSIDE)) {
-                     content = sentence_furi;
-                 } else {
-                     content = sentence;
-                 }
-                sentenceDiv.innerHTML = `<div style="display: flex;"><div style="display: flex; flex-direction: column;"><div style="display: flex; align-items: baseline; column-gap: 0.25rem;" class="card-sentence"><div class="sentence" style="margin-left: 0.3rem;">${content}</div><a class="icon-link" href="/edit-shown-sentence?v=1168870&amp;s=3448502455&amp;r=1858493110&amp;origin=%2Freview%3Fc%3Dvf%2C1168870%2C3448502455%26r%3D2"><i class="ti ti-pencil"></i></a></div><div style="display: flex;justify-content: center;"><div class="sentence-translation blur" style="" onclick="this.classList.remove('blur');" onmouseover="this.classList.remove('blur');">${translation}</div></div></div></div>`;
+                if ((state.isFront && CONFIG.FURIGANA_ON_FRONT_SIDE) || (!state.isFront && CONFIG.FURIGANA_ON_BACKSIDE)) {
+                    content = highlightVocab(sentence_furi, highlight);
+                } else {
+                    content = highlightVocab(sentence, highlight);
+                }
+                const translationHtml = translation
+                    ? `<div style="display: flex;justify-content: center;"><div class="sentence-translation${CONFIG.BLUR_EXAMPLE_SENTENCE ? ' blur' : ''}" style="" onclick="this.classList.remove('blur');" onmouseover="this.classList.remove('blur');">${translation}</div></div>`
+                    : '';
+                sentenceDiv.innerHTML = `<div style="display: flex;"><div style="display: flex; flex-direction: column;"><div style="display: flex; align-items: baseline; column-gap: 0.25rem;" class="card-sentence"><div class="sentence" style="margin-left: 0.3rem;">${content}</div><a class="icon-link" href="/edit-shown-sentence?v=1168870&amp;s=3448502455&amp;r=1858493110&amp;origin=%2Freview%3Fc%3Dvf%2C1168870%2C3448502455%26r%3D2"><i class="ti ti-pencil"></i></a></div>${translationHtml}</div></div>`;
                 answerBox.appendChild(sentenceDiv);
-
             }
         }
-
+        const storedValue = getItem(state.vocab);
+        const isBlacklisted = storedValue && storedValue.split(',').length > 1 && parseInt(storedValue.split(',')[1], 10) === 2;
         // Remove any existing container
         removeExistingContainer();
         if (!shouldRenderContainer()) {
@@ -1078,33 +1169,40 @@
 
         // Create and append the main wrapper and text button container
         const wrapperDiv = createWrapperDiv();
-        const textDiv = createButtonContainer(soundUrl, vocab);
+        const textDiv = createButtonContainer(vocab);
         wrapperDiv.appendChild(textDiv);
 
+        // Fixed-size container for image/text to prevent layout shift
+        const imageContainer = createImageContainer();
 
         const createTextElement = (text) => {
             const textElement = document.createElement('div');
             textElement.textContent = text;
-            textElement.style.padding = '100px 0';
             textElement.style.whiteSpace = 'pre'; // Ensures newlines are respected
             return textElement;
         };
-        if (state.apiDataFetched) {
+        if (example.isJpdbDefault) {
+            imageContainer.appendChild(createTextElement('JPDB Default Sentence'));
+        } else if (state.apiDataFetched) {
             if (imageUrl) {
-                const imageElement = createImageElement(wrapperDiv, imageUrl, vocab, state.exactSearch);
-                if (imageElement) {
-                    imageElement.addEventListener('click', () => playAudio(soundUrl));
-                }
+                const imageLink = document.createElement('a');
+                imageLink.href = `https://nadeshiko.co/sentence/${example.publicId}`;
+                imageLink.target = '_blank';
+                imageLink.style.border = '0';
+                imageLink.style.display = 'block';
+                imageLink.style.width = '100%';
+                imageLink.style.height = '100%';
+                imageContainer.appendChild(imageLink);
+                createImageElement(imageLink, imageUrl, vocab);
             } else {
-                wrapperDiv.appendChild(createTextElement(`NO IMAGE\n(${deck_name})`));
+                imageContainer.appendChild(createTextElement(`NO IMAGE\n(${deck_name})`));
             }
-            // Append sentence and translation or a placeholder text
-            // sentence ? appendSentenceAndTranslation(wrapperDiv, sentence, translation) : appendNoneText(wrapperDiv);
         } else if (!sentence) {
-            wrapperDiv.appendChild(createTextElement('ERROR\nNO EXAMPLES FOUND\n\nRARE WORD OR NADESHIKO API IS TEMPORARILY DOWN'));
+            imageContainer.appendChild(createTextElement('ERROR\nNO EXAMPLES FOUND\n\nRARE WORD OR NADESHIKO API IS TEMPORARILY DOWN'));
         } else {
-            wrapperDiv.appendChild(createTextElement('LOADING'));
+            imageContainer.appendChild(createTextElement('LOADING'));
         }
+        wrapperDiv.appendChild(imageContainer);
 
 
         // Create navigation elements
@@ -1112,8 +1210,33 @@
         const leftArrow = createLeftArrow(vocab, shouldAutoPlaySound);
         const rightArrow = createRightArrow(vocab, shouldAutoPlaySound);
 
+        const totalCount = state.examples.length;
+        const currentDisplay = state.currentExampleIndex + 1;
+        const counterText = document.createElement('span');
+        counterText.textContent = `${currentDisplay} / ${totalCount}`;
+        counterText.style.fontSize = '85%';
+        counterText.style.color = 'var(--subsection-label-color)';
+        counterText.style.margin = '0 10px';
+
+        // Show anime name for current example
+        const infoDiv = document.createElement('div');
+        infoDiv.style.textAlign = 'center';
+        infoDiv.style.fontSize = '80%';
+        infoDiv.style.color = 'var(--subsection-label-color)';
+        infoDiv.style.marginTop = '4px';
+        if (deck_name && !example.isJpdbDefault) {
+            const nameLink = document.createElement('a');
+            nameLink.textContent = deck_name;
+            nameLink.href = `https://nadeshiko.co/search?mediaId=${example.mediaPublicId}`;
+            nameLink.target = '_blank';
+            nameLink.style.color = 'inherit';
+            nameLink.style.textDecoration = 'none';
+            nameLink.style.cursor = 'pointer';
+            infoDiv.appendChild(nameLink);
+        }
+
         // Create and append the main container
-        const containerDiv = createContainerDiv(leftArrow, wrapperDiv, rightArrow, navigationDiv);
+        const containerDiv = createContainerDiv(leftArrow, wrapperDiv, rightArrow, counterText, infoDiv, navigationDiv);
         appendContainer(containerDiv);
 
         // Auto-play sound if configured
@@ -1163,6 +1286,10 @@
         if (existingContainer) {
             existingContainer.remove();
         }
+        const existingSentenceDiv = document.getElementById('nadeshiko-sentence');
+        if (existingSentenceDiv) {
+            existingSentenceDiv.remove();
+        }
         window.removeEventListener('keydown', hotkeysListener);
     }
 
@@ -1184,11 +1311,27 @@
         return wrapperDiv;
     }
 
-    function createImageElement(wrapperDiv, imageUrl, vocab, exactSearch) {
+    function createImageContainer() {
+        // Fixed-size container for the image/text area to prevent layout shift
+        const container = document.createElement('div');
+        container.style.width = CONFIG.IMAGE_WIDTH;
+        container.style.height = CONFIG.IMAGE_HEIGHT;
+        container.style.display = 'flex';
+        container.style.alignItems = 'center';
+        container.style.justifyContent = 'center';
+        container.style.margin = '0 auto';
+        container.style.marginBottom = '4px';
+        container.style.overflow = 'hidden';
+        container.style.border = '1px solid rgba(128, 128, 128, 0.3)';
+        container.style.borderRadius = '4px';
+        return container;
+    }
+
+    function createImageElement(wrapperDiv, imageUrl, vocab) {
         // Create and return an image element with specified attributes
-        const searchVocab = exactSearch ? `「${vocab}」` : vocab;
+        const searchVocab = vocab;
         const example = state.examples[state.currentExampleIndex] || {};
-        const deck_name = example.basic_info.name_anime_romaji || null;
+        const deck_name = example.mediaName || null;
 
         // Extract the file name from the URL
         let file_name = imageUrl.substring(imageUrl.lastIndexOf('/') + 1);
@@ -1202,7 +1345,7 @@
             src: imageUrl,
             alt: 'Embedded Image',
             title: titleText,
-            style: `max-width: ${CONFIG.IMAGE_WIDTH}; margin-top: 10px; cursor: pointer;`
+            style: `width: 100%; height: 100%; object-fit: cover; cursor: pointer;`
         });
     }
 
@@ -1235,7 +1378,6 @@
         leftArrow.addEventListener('click', () => {
             if (state.currentExampleIndex > 0) {
                 state.currentExampleIndex--;
-                state.currentlyPlayingAudio = false;
                 renderImageAndPlayAudio(vocab, shouldAutoPlaySound);
                 preloadImages();
             }
@@ -1260,7 +1402,6 @@
         rightArrow.addEventListener('click', () => {
             if (state.currentExampleIndex < state.examples.length - 1) {
                 state.currentExampleIndex++;
-                state.currentlyPlayingAudio = false;
                 renderImageAndPlayAudio(vocab, shouldAutoPlaySound);
                 preloadImages();
             }
@@ -1268,7 +1409,7 @@
         return rightArrow;
     }
 
-    function createContainerDiv(leftArrow, wrapperDiv, rightArrow, navigationDiv) {
+    function createContainerDiv(leftArrow, wrapperDiv, rightArrow, counterText, infoDiv, navigationDiv) {
         // Create and configure the main container div
         const containerDiv = document.createElement('div');
         containerDiv.id = 'nadeshiko-container';
@@ -1276,14 +1417,16 @@
         containerDiv.style.alignItems = 'center';
         containerDiv.style.justifyContent = 'center';
         containerDiv.style.flexDirection = 'column';
+        containerDiv.style.width = CONFIG.IMAGE_WIDTH;
+        containerDiv.style.margin = '0 auto';
 
         const arrowWrapperDiv = document.createElement('div');
         arrowWrapperDiv.style.display = 'flex';
         arrowWrapperDiv.style.alignItems = 'center';
         arrowWrapperDiv.style.justifyContent = 'center';
 
-        arrowWrapperDiv.append(leftArrow, wrapperDiv, rightArrow);
-        containerDiv.append(arrowWrapperDiv, navigationDiv);
+        arrowWrapperDiv.append(leftArrow, counterText, rightArrow);
+        containerDiv.append(wrapperDiv, arrowWrapperDiv, infoDiv, navigationDiv);
 
         return containerDiv;
     }
@@ -1303,6 +1446,9 @@
             const wrapper = document.createElement('div');
             wrapper.style.display = 'flex';
             wrapper.style.alignItems = 'flex-start';
+            if (CONFIG.DEFINITIONS_ON_RIGHT_IN_WIDE_MODE) {
+                wrapper.style.gap = '40px';
+            }
             styleSheet.insertRule('.subsection-meanings { max-width: none !important; }', styleSheet.cssRules.length);
 
             const originalContentWrapper = document.createElement('div');
@@ -1378,8 +1524,8 @@
         const endIndex = Math.min(state.examples.length - 1, state.currentExampleIndex + CONFIG.NUMBER_OF_PRELOADS);
 
         for (let i = startIndex; i <= endIndex; i++) {
-            if (!state.preloadedIndices.has(i) && state.examples[i].image_url) {
-                GM_addElement(preloadDiv, 'img', {src: state.examples[i].image_url});
+            if (!state.preloadedIndices.has(i) && state.examples[i].urls && state.examples[i].urls.imageUrl) {
+                GM_addElement(preloadDiv, 'img', {src: state.examples[i].urls.imageUrl});
                 state.preloadedIndices.add(i);
             }
         }
@@ -1819,26 +1965,7 @@
 
             leftContainer.appendChild(label);
 
-            if (key === 'RANDOM_SENTENCE') {
-                const select = document.createElement('select');
-                select.setAttribute('data-key', key);
-
-                // Add options to the select dropdown for the enum values
-                for (const [enumKey, enumValue] of Object.entries(RANDOM_SENTENCE_ENUM)) {
-                    const option = document.createElement('option');
-                    option.value = enumValue;
-                    option.text = enumKey.replace(/_/g, ' ').toLowerCase();
-                    option.selected = value === enumValue; // Set the current value as selected
-                    select.appendChild(option);
-                }
-
-                select.addEventListener('change', (event) => {
-                    CONFIG[key] = parseInt(event.target.value, 10); // Update the config with the selected value
-                    localStorage.setItem(`${scriptPrefix + configPrefix}${key}`, event.target.value); // Save to localStorage
-                });
-
-                rightContainer.appendChild(select);
-            } else if (typeof value === 'boolean') {
+            if (typeof value === 'boolean') {
                 const checkboxContainer = document.createElement('div');
                 checkboxContainer.style.display = 'flex';
                 checkboxContainer.style.alignItems = 'center';
@@ -2109,6 +2236,14 @@
 
         overlay.appendChild(menuContent);
 
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeOverlayMenu();
+            }
+        });
+        overlay.tabIndex = -1;
+        requestAnimationFrame(() => overlay.focus());
+
         return overlay;
     }
 
@@ -2132,26 +2267,10 @@
 
 
             const valueType = typeof CONFIG[configKey];
-            if (configKey === 'RANDOM_SENTENCE') {
-                if (savedValue == 0) {
-                    CONFIG[configKey] = RANDOM_SENTENCE_ENUM.DISABLE;
-                }
-                if (savedValue == 1) {
-                    CONFIG[configKey] = RANDOM_SENTENCE_ENUM.ON_FIRST;
-                }
-                if (savedValue == 2) {
-                    CONFIG[configKey] = RANDOM_SENTENCE_ENUM.EVERY_TIME;
-                }
-            } else if (configKey === 'HOTKEYS') {
+            if (configKey === 'HOTKEYS') {
                 CONFIG[configKey] = savedValue.split(' ');
             } else if (valueType === 'boolean') {
                 CONFIG[configKey] = savedValue === 'true';
-                if (configKey === 'DEFAULT_TO_EXACT_SEARCH') {
-                    state.exactSearch = CONFIG.DEFAULT_TO_EXACT_SEARCH;
-                }
-                // I wonder if this is the best way to do this...
-                // Probably not because we could just have a single variable to store both, but it would have to be in config and
-                // it would be a bit weird to have the program modifying config when the actual config settings aren't changing
             } else if (valueType === 'number') {
                 CONFIG[configKey] = parseFloat(savedValue);
             } else if (valueType === 'string') {
@@ -2161,14 +2280,13 @@
     }
 
 
-    async function process_sentences(state, sentences, first_call) {
+    async function process_sentences(state, sentences) {
         // Early return for empty array or single item (no processing needed)
         if (!sentences || !Array.isArray(sentences) || sentences.length <= 1) {
             return sentences;
         }
         // Only randomize if needed
-        const shouldRandomize = CONFIG.RANDOM_SENTENCE >
-            (first_call ? RANDOM_SENTENCE_ENUM.DISABLE : RANDOM_SENTENCE_ENUM.ON_FIRST);
+        const shouldRandomize = CONFIG.RANDOM_SENTENCE;
 
         // Skip weight calculation if not needed
         if (!CONFIG.WEIGHTED_SENTENCES && !shouldRandomize) {
@@ -2228,20 +2346,35 @@
     }
 
     //MAIN FUNCTIONS=====================================================================================================================
+    let onPageLoadRunning = false;
     async function onPageLoad() {
+        if (onPageLoadRunning) return;
+        onPageLoadRunning = true;
         // Initialize state and determine vocabulary based on URL
+        const previousVocab = state.vocab;
         state.embedAboveSubsectionMeanings = false;
         state.isFront = !document.querySelector('.result');
+        state.currentlyPlayingAudio = false;
         // Early layout adjustments without waiting
         setPageWidth();
         const sentenceElement = document.querySelector('.sentence');
         if (sentenceElement) {
+            // Save the original JPDB HTML so we can restore it when navigating back
+            state.jpdbSentenceHtml = sentenceElement.innerHTML;
+            const translationEl = document.querySelector('.sentence-translation');
+            state.jpdbTranslationText = translationEl ? translationEl.textContent : null;
             removeRtFromDOM(sentenceElement)
             const defaultSentence = sentenceElement.textContent.trim();
             if (defaultSentence) {
-                state.examples = [{segment_info: {content_jp: defaultSentence}}];
+                state.jpdbDefaultExample = {textJa: {content: defaultSentence}, isJpdbDefault: true};
             }
-            sentenceElement.textContent = "Waiting for data...";
+            // Show placeholder text while data loads in random mode
+            if (CONFIG.RANDOM_SENTENCE) {
+                sentenceElement.textContent = 'Waiting for Data...';
+                if (translationEl) {
+                    translationEl.textContent = '';
+                }
+            }
         }
         const machineTranslationFrame = document.getElementById('machine-translation-frame');
         // Skip if machine translation frame is present
@@ -2297,7 +2430,7 @@
                         }
                         if (vocab) {
                             try {
-                                await getNadeshikoData(vocab, state.exactSearch, reading);
+                                await getNadeshikoData(vocab, reading);
                             } catch (e) {
                                 console.error('Error preprocessing vocab:', vocab, e);
                             }
@@ -2320,14 +2453,22 @@
             return;
         }
 
+        // If the vocab changed (new card), reset data state; otherwise keep existing data (e.g., card flip)
+        if (state.vocab !== previousVocab) {
+            state.currentExampleIndex = 0;
+            state.apiDataFetched = false;
+            state.examples = state.jpdbDefaultExample ? [state.jpdbDefaultExample] : [];
+            state.error = false;
+            state.preloadedIndices = new Set();
+        }
 
         // Fetch data if needed, process in parallel threads where possible
         if (!state.apiDataFetched) {
             try {
-                await getNadeshikoData(state.vocab, state.exactSearch);
+                await getNadeshikoData(state.vocab);
 
                 // Process sentences in parallel with preloading images
-                const processingPromise = process_sentences(state, state.examples, true);
+                const processingPromise = process_sentences(state, state.examples);
                 const preloadPromise = Promise.resolve().then(() => preloadImages());
 
                 state.examples = await processingPromise;
@@ -2335,7 +2476,7 @@
                 await preloadPromise;
 
                 const db = await IndexedDBManager.open();
-                await IndexedDBManager.save(db,state.exactSearch ? `"${state.vocab}"` : state.vocab, state.examples);
+                await IndexedDBManager.save(db, state.vocab, state.examples);
                 // Finally, display the example
                 embedImageAndPlayAudio();
             } catch (error) {
@@ -2350,6 +2491,7 @@
                 Promise.resolve().then(() => setVocabSize())
             ]);
         }
+        onPageLoadRunning = false;
     }
 
     function setPageWidth() {
@@ -2370,10 +2512,20 @@
         // Create a new style element
         const style = document.createElement('style');
         style.type = 'text/css';
-        style.innerHTML = `
+        style.textContent = `
 	            .answer-box > .plain {
 	                font-size: ${CONFIG.VOCAB_SIZE} !important; /* Use the configurable font size */
 	                padding-bottom: 0.1rem !important; /* Retain padding */
+	            }
+	            .card-sentence {
+	                justify-content: center;
+	            }
+	            .sentence {
+	                text-align: center;
+	            }
+	            .sentence-translation {
+	                text-wrap: balance;
+	                text-align: center;
 	            }
 	        `;
 
